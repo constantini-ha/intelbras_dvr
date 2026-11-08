@@ -1,108 +1,105 @@
-# Intelbras DVR
-
 <p align="center">
-  <img src="custom_components/intelbras_dvr/brand/logo.png" alt="Intelbras DVR" width="320"/>
+  <img src="custom_components/intelbras_dvr/brand/logo.png" width="240" alt="">
 </p>
 
-[🇺🇸 English](README.md)
+<h1 align="center">Intelbras DVR</h1>
 
-> ⚠️ **Aviso**: Intelbras® e Dahua® são marcas registradas dos respectivos
-> proprietários. Esta é uma integração comunitária não-oficial, sem qualquer
-> afiliação, endosso ou suporte da Intelbras S.A. ou Dahua Technology.
+<p align="center">
+  Seu DVR Intelbras ou Dahua no Home Assistant: canais ao vivo, gravações no<br>
+  painel de Mídia, e um endereço que se conserta quando o DHCP o muda.
+</p>
 
-Integração customizada do Home Assistant para DVRs **Intelbras / Dahua** com:
+<p align="center">
+  <a href="https://github.com/constantini-ha/intelbras_dvr/releases"><img src="https://img.shields.io/github/v/release/constantini-ha/intelbras_dvr?style=flat-square&color=41BDF5" alt="versão"></a>
+  <img src="https://img.shields.io/badge/Home_Assistant-2024.1+-41BDF5?style=flat-square" alt="Home Assistant">
+  <img src="https://img.shields.io/badge/licença-MIT-green?style=flat-square" alt="MIT">
+</p>
 
-- 🎥 Câmeras via snapshot HTTP (digest) + stream RTSP — uma entidade por canal.
-- 🔧 Reautenticação via UI: serviço `intelbras_dvr.apply_credentials` para trocar
-  IP/usuário/senha sem recriar a integração.
-- 🌐 **Auto-rastreio por MAC**: se o DHCP der outro IP ao DVR (queda de energia,
-  reboot do roteador), a integração detecta o MAC original e atualiza o host
-  automaticamente — sem ação manual.
-- 📋 Sensor `last_apply_result` com o resultado da última (re)autenticação.
-- 🕒 **Gravações no Media Browser** (v0.2.0): navegue por canal → dia →
-  segmento e assista às gravações do DVR direto no navegador/app, via
-  playback RTSP convertido em HLS pelo Home Assistant.
+<p align="center">
+  <a href="README.md">English</a> · <b>Português</b> · <a href="README.es.md">Español</a>
+</p>
 
-Inspirado no padrão `generic_camera` mas dedicado a DVRs Intelbras/Dahua,
-incluindo o problema clássico de bloqueio de login após várias tentativas
-erradas (a integração desabilita auto-reload em caso de 401 repetido).
+> **Não oficial.** Intelbras® e Dahua® são marcas registradas de seus donos. Esta
+> é uma integração da comunidade, sem vínculo, endosso ou suporte da Intelbras
+> S.A. ou da Dahua Technology.
 
-## Gravações (Media Browser)
+---
 
-A partir da v0.2.0, as gravações do DVR aparecem no painel **Mídia** do Home
-Assistant: **Mídia → Intelbras DVR → canal → dia → segmento**. A listagem usa a
-API `mediaFileFind.cgi` do DVR e a reprodução usa a URL RTSP de playback
-(`/cam/playback`) convertida em HLS pelo componente `stream` — nada é baixado
-em `.dav`.
+## O que você ganha
 
-Notas:
-
-- A janela de navegação cobre os últimos 7 dias (segmentos de gravação
-  contínua aparecem tipicamente em blocos de 30 min).
-- DVRs de entrada costumam limitar sessões simultâneas de playback (1–2). Se o
-  vídeo não abrir, feche outros players e tente de novo.
-- Gravações H.265/HEVC tocam bem em Safari/Chrome/Edge; Firefox tem suporte
-  fraco a HEVC (mesma limitação do live view).
-- Para um card na dashboard, o
-  [advanced-camera-card](https://github.com/dermotduffy/advanced-camera-card)
-  aceita `folders:` apontando para `media-source://intelbras_dvr`.
+```
+  DVR ──┬── ao vivo     uma entidade de câmera por canal
+        │               snapshot HTTP (digest) + stream RTSP
+        │
+        ├── gravações   Mídia → Intelbras DVR → canal → dia → trecho
+        │               playback RTSP, convertido em HLS pelo Home Assistant
+        │
+        └── ele mesmo   rastreado pelo MAC, então segue o IP novo sozinho
+```
 
 ## Instalação
 
-### Via HACS (recomendado)
-1. HACS → menu (⋮) → **Custom repositories**.
-2. URL: `https://github.com/Constantini21/intelbras_dvr` (categoria *Integration*).
-3. Instalar **Intelbras DVR** e reiniciar o HA.
-4. Settings → Devices & Services → **Add Integration** → "Intelbras DVR".
+1. **HACS** (ou Marketplace, a partir do 2026.11) → ⋮ → **Repositórios personalizados**
+2. URL `https://github.com/constantini-ha/intelbras_dvr`, categoria *Integração*
+3. Instale, reinicie, e vá em **Configurações → Dispositivos e serviços → Adicionar integração → Intelbras DVR**
 
-### Manual
-Copie `custom_components/intelbras_dvr/` para
-`<config>/custom_components/intelbras_dvr/` e reinicie o HA.
+Na mão: copie `custom_components/intelbras_dvr/` para o seu `config/custom_components/`.
 
-## Configuração (config flow)
+## Adicionando o DVR
 
-| Campo | Default | Descrição |
-|-------|---------|-----------|
-| `host` | — | IP do DVR (ex: `172.16.0.12`) |
-| `username` | `admin` | Usuário do DVR |
-| `password` | — | Senha do DVR |
-| `channels` | `4` | Quantidade de canais a criar |
-| `track_by_mac` | `true` | Habilitar rastreio automático por MAC |
+| Campo | Padrão | O que é |
+| --- | --- | --- |
+| `host` | — | o IP do DVR, por exemplo `172.16.0.12` |
+| `username` | `admin` | usuário do DVR |
+| `password` | — | senha do DVR |
+| `channels` | `4` | quantas entidades de câmera criar |
+| `rtsp_port` | `554` | porta RTSP |
+| `track_by_mac` | `true` | seguir o DVR quando o IP dele mudar |
+| `scan_interval` | `300` | de quanto em quanto tempo conferir, em segundos |
 
-Ao salvar, a integração testa `GET http://<host>/cgi-bin/snapshot.cgi?channel=1`
-com digest auth. Se 200, cria N câmeras.
+Ao enviar, a integração chama `snapshot.cgi?channel=1` com autenticação digest;
+se vier HTTP 200, os canais são criados.
 
-## Serviço `intelbras_dvr.apply_credentials`
+## Quando o IP muda
+
+Nada a fazer. A cada ciclo a integração lê a tabela ARP local, aprende o MAC do
+DVR na primeira vez e, daí em diante, procura o aparelho por esse MAC — que
+sobrevive à troca de concessão, ao contrário do endereço. Quando ele muda, a
+entrada é atualizada, a integração recarrega, e toda câmera `generic` que
+apontava para o endereço antigo passa a apontar para o novo.
+
+Isso exige o Home Assistant na mesma L2 do DVR, com `network_mode: host` ou em
+máquina física. Container em bridge não enxerga a tabela ARP do host.
+
+## Trocando as credenciais
 
 ```yaml
-service: intelbras_dvr.apply_credentials
+action: intelbras_dvr.apply_credentials
 data:
-  entry_id: <config_entry_id>   # opcional se só houver 1 instalação
+  entry_id: <config_entry_id>   # opcional se só houver um DVR
   host: 172.16.0.12
   username: admin
-  password: nova-senha
+  password: senha-nova
 ```
 
-Valida, atualiza a entry, faz reload sem reiniciar o HA.
+Valida contra o DVR, atualiza a entrada e recarrega no lugar — sem reiniciar o
+Home Assistant. O sensor `last_apply_result` conta o que aconteceu: `OK:`,
+`FAIL:` ou `AUTO:`.
 
-## Auto-rastreio por MAC
+## O que esperar
 
-Quando ativado:
-- A cada `scan_interval` (default 300s) a integração lê a tabela ARP local
-  (`ip neigh`) e localiza o MAC associado ao IP atual.
-- Em ciclos seguintes, se o IP do MAC mudar, a entry é atualizada e
-  recarregada automaticamente.
-- Funciona **apenas** se o HA roda em `network_mode: host` (ou bare metal) —
-  containers em `bridge` não enxergam a ARP do host.
+- **Bloqueio por tentativa.** Esses DVRs travam o IP do cliente por uns 30
+  minutos depois de 3 a 5 logins errados. A integração percebe o HTTP 401 e
+  pausa as retentativas por 5 minutos, em vez de piorar o bloqueio.
+- **Sessões de playback.** Aparelhos de entrada permitem uma ou duas por vez. Se
+  um vídeo não começar, feche os outros.
+- **HEVC.** Gravações em H.265 tocam no Safari, Chrome e Edge. O suporte do
+  Firefox é fraco — mesma limitação do ao vivo.
+- **Janela de navegação.** Os últimos 7 dias, normalmente em blocos de 30 minutos.
 
-## Sensor `last_apply_result`
+Para o painel, o [advanced-camera-card](https://github.com/dermotduffy/advanced-camera-card)
+aceita `folders:` apontando para `media-source://intelbras_dvr`.
 
-Mostra o resultado da última chamada do serviço ou do auto-rastreio
-(`OK: ...` ou `FAIL: ...`).
+## Licença
 
-## Limitações conhecidas
-
-- DVRs Intelbras/Dahua bloqueiam o IP cliente por ~30min após 3-5 tentativas
-  de login erradas. A integração detecta 401 e pausa retentativas de stream
-  por 5min para não agravar o ban.
-- Só descobre MAC se o HA estiver na mesma L2 do DVR.
+[MIT](LICENSE).
