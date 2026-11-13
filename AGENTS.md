@@ -37,3 +37,6 @@
   `position:fixed` stayed under the app header and hid the way out.
 - To test an installed card against the working tree, block service workers and
   `page.route('**/intelbras_dvr/frontend/**')` to the local files.
+- `media_source/resolve_media` answers a relative URL and `ha-hls-player` does
+  `new URL(child, this.url)` on a master playlist: give it an absolute URL or it
+  throws `Invalid base URL`.

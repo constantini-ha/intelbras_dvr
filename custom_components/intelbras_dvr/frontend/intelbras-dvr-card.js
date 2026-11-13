@@ -456,7 +456,8 @@ class IntelbrasDvrCard extends HTMLElement {
           `${ROOT}/PLAY|${this._rec.entry}|${this._rec.channel}|${stamp(at)}|${stamp(at + WINDOW)}`,
       });
       if (this._rec.at !== at) return;
-      this._rec.url = media.url;
+      // The player resolves the master playlist against this address, so it must be absolute.
+      this._rec.url = new URL(media.url, this._hass.hassUrl ? this._hass.hassUrl() : location.origin).href;
     } catch (err) {
       this._stop();
       this._rec.note = this._t("play_failed", { err: err.message || String(err) });
