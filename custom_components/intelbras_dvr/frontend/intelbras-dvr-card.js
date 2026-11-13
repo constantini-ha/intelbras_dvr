@@ -2,6 +2,8 @@ import { t, tn } from "./i18n.js";
 
 const PLATFORM = "intelbras_dvr";
 const ROOT = "media-source://intelbras_dvr";
+// How much video one request to the DVR covers, in seconds.
+const WINDOW = 1800;
 
 const STYLE = `
   :host { display:block }
@@ -40,16 +42,36 @@ const STYLE = `
   .rec { display:flex; flex-direction:column; min-height:0; flex:1; background:var(--card-background-color) }
   .player { background:#000; aspect-ratio:16/9; max-height:70vh }
   .player > * { display:block; width:100%; height:100% }
-  .crumb { padding:10px 14px 4px; font-size:13px; color:var(--secondary-text-color) }
-  .list { display:grid; grid-template-columns:repeat(auto-fill, minmax(132px, 1fr)); gap:8px;
-    padding:8px 12px 14px; overflow:auto }
-  .list button { all:unset; cursor:pointer; box-sizing:border-box; display:flex; align-items:center;
-    gap:8px; min-height:44px; padding:0 12px; border-radius:12px; font-size:14px;
+  .player { position:relative }
+  .hint { position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    padding:16px; text-align:center; color:rgba(255,255,255,.78); font-size:14px }
+  .chips, .nav { display:flex; align-items:center; gap:6px; padding:8px 12px 0; flex-wrap:wrap }
+  .chips button, .nav button { all:unset; cursor:pointer; display:inline-flex; align-items:center;
+    gap:6px; min-height:36px; padding:0 12px; border-radius:18px; font-size:13px;
     background:var(--secondary-background-color); color:var(--primary-text-color);
     --mdc-icon-size:20px }
-  .list button:hover, .list button:focus-visible {
-    background:color-mix(in srgb, var(--primary-color) 16%, var(--secondary-background-color)) }
-  .list button.on { background:var(--primary-color); color:var(--text-primary-color) }
+  .nav button { padding:0 8px }
+  .chips button.on { background:var(--primary-color); color:var(--text-primary-color) }
+  .chips button:focus-visible, .nav button:focus-visible, .nav input:focus-visible {
+    outline:2px solid var(--primary-color); outline-offset:1px }
+  .nav button[disabled] { opacity:.4; cursor:default }
+  .nav input { font:inherit; font-size:14px; min-height:36px; padding:0 8px; border-radius:10px;
+    border:1px solid var(--divider-color); background:var(--secondary-background-color);
+    color:var(--primary-text-color); color-scheme:light dark }
+  .now { flex:1; min-width:76px; text-align:center; font-size:16px; font-weight:500;
+    font-variant-numeric:tabular-nums; color:var(--primary-text-color) }
+  .scroll { overflow-x:auto; margin:10px 12px 14px; border-radius:10px;
+    background:var(--secondary-background-color) }
+  .track { position:relative; height:64px; min-width:100%; cursor:pointer }
+  .hour { position:absolute; top:0; bottom:0; padding:4px 0 0 4px; font-size:10px;
+    color:var(--secondary-text-color); border-left:1px solid var(--divider-color);
+    white-space:nowrap; pointer-events:none }
+  .hour.quiet { color:transparent }
+  .block { position:absolute; top:26px; height:26px; min-width:1px; border-radius:2px;
+    background:var(--primary-color); opacity:.85; pointer-events:none }
+  .cursor { position:absolute; top:0; bottom:0; width:2px; margin-left:-1px;
+    background:var(--error-color, #db4437); pointer-events:none }
+  .cursor[hidden] { display:none }
 `;
 
 class IntelbrasDvrCard extends HTMLElement {
@@ -74,7 +96,7 @@ class IntelbrasDvrCard extends HTMLElement {
     this._view = "live";
     this._focus = null;
     this._streams = [];
-    this._trail = [];
+    this._rec = { channel: 1, day: null, ranges: null, zoom: 1, at: null, cursor: null };
   }
 
   setConfig(config) {
@@ -102,6 +124,7 @@ class IntelbrasDvrCard extends HTMLElement {
 
   disconnectedCallback() {
     document.removeEventListener("fullscreenchange", this._onFull);
+    clearInterval(this._tick);
   }
 
   getCardSize() {
@@ -218,7 +241,11 @@ class IntelbrasDvrCard extends HTMLElement {
   _show(view) {
     if (view === this._view) return;
     this._view = view;
-    if (view === "rec" && !this._trail.length) this._open(ROOT);
+    if (view === "rec") {
+      this._loadDay();
+      return;
+    }
+    this._stop();
     this._render();
   }
 
@@ -303,116 +330,253 @@ class IntelbrasDvrCard extends HTMLElement {
       : this._config.title || this._t("cameras");
   }
 
-  async _open(mediaId, { replace = false } = {}) {
-    this._busy = true;
-    this._error = null;
-    if (this._view === "rec") this._render();
+  _day(offset = 0) {
+    const [y, m, d] = this._rec.day.split("-").map(Number);
+    const date = new Date(Date.UTC(y, m - 1, d + offset));
+    return date.toISOString().slice(0, 10);
+  }
+
+  async _loadDay(change = {}) {
+    this._stop();
+    Object.assign(this._rec, change, { ranges: null, error: null, cursor: null });
+    this._render();
+    const asked = `${this._rec.channel}|${this._rec.day}`;
     try {
-      const node = await this._hass.callWS({
-        type: "media_source/browse_media",
-        media_content_id: mediaId,
+      const answer = await this._hass.callWS({
+        type: "intelbras_dvr/recordings",
+        channel: this._rec.channel,
+        ...(this._rec.day ? { day: this._rec.day } : {}),
       });
-      if (replace) this._trail.pop();
-      this._trail.push(node);
+      if (asked !== `${this._rec.channel}|${this._rec.day}`) return;
+      Object.assign(this._rec, {
+        entry: answer.entry_id,
+        day: answer.day,
+        today: answer.today,
+        channels: answer.channels,
+        ranges: answer.ranges,
+      });
     } catch (err) {
-      this._error = this._t("browse_failed", { err: err.message || String(err) });
+      this._rec.ranges = [];
+      this._rec.error = this._t("browse_failed", { err: err.message || String(err) });
     }
-    this._busy = false;
     if (this._view === "rec") this._render();
   }
 
-  async _play(item) {
-    this._playing = { id: item.media_content_id, title: item.title, url: null };
-    this._error = null;
+  _stop() {
+    clearInterval(this._tick);
+    this._tick = null;
+    this._player = null;
+    Object.assign(this._rec, { at: null, url: null, note: null });
+  }
+
+  // The DVR plays from an instant, so moving on the timeline starts a new stream there.
+  async _playAt(second) {
+    const ranges = this._rec.ranges || [];
+    const inside = ranges.find(([from, to]) => second >= from && second < to - 2);
+    const next = inside ? null : ranges.find(([from]) => from > second);
+    if (!inside && !next) {
+      this._stop();
+      this._rec.note = this._t("no_recording_there");
+      this._render();
+      return;
+    }
+    const at = Math.max(0, Math.floor(inside ? second : next[0]));
+    this._stop();
+    Object.assign(this._rec, { at, cursor: at });
     this._render();
+    const stamp = (value) => {
+      const pad = (n) => String(n).padStart(2, "0");
+      const clock = Math.min(value, 86399);
+      return this._rec.day.replaceAll("-", "") +
+        pad(Math.floor(clock / 3600)) + pad(Math.floor((clock % 3600) / 60)) + pad(clock % 60);
+    };
     try {
       const media = await this._hass.callWS({
         type: "media_source/resolve_media",
-        media_content_id: item.media_content_id,
+        media_content_id:
+          `${ROOT}/PLAY|${this._rec.entry}|${this._rec.channel}|${stamp(at)}|${stamp(at + WINDOW)}`,
       });
-      if (!this._playing || this._playing.id !== item.media_content_id) return;
-      this._playing.url = media.url;
+      if (this._rec.at !== at) return;
+      this._rec.url = media.url;
     } catch (err) {
-      this._playing = null;
-      this._error = this._t("play_failed", { err: err.message || String(err) });
+      this._stop();
+      this._rec.note = this._t("play_failed", { err: err.message || String(err) });
     }
-    this._render();
+    if (this._view === "rec") this._render();
+  }
+
+  _video() {
+    const player = this._player;
+    if (!player) return null;
+    return player.tagName === "VIDEO"
+      ? player
+      : player.shadowRoot && player.shadowRoot.querySelector("video");
+  }
+
+  _clock(second) {
+    const pad = (n) => String(n).padStart(2, "0");
+    const s = Math.max(0, Math.min(86399, Math.floor(second)));
+    return `${pad(Math.floor(s / 3600))}:${pad(Math.floor((s % 3600) / 60))}:${pad(s % 60)}`;
+  }
+
+  _moveCursor() {
+    const video = this._video();
+    if (video && this._rec.at != null) {
+      this._rec.cursor = this._rec.at + (video.currentTime || 0);
+      if (video.ended && this._rec.at + WINDOW < 86400) {
+        this._playAt(this._rec.at + WINDOW);
+        return;
+      }
+    }
+    const root = this.shadowRoot;
+    const line = root.querySelector(".cursor");
+    const now = root.querySelector(".now");
+    if (line && this._rec.cursor != null) {
+      line.style.left = `${(this._rec.cursor / 86400) * 100}%`;
+      line.hidden = false;
+    }
+    if (now) now.textContent = this._rec.cursor != null ? this._clock(this._rec.cursor) : "--:--:--";
+  }
+
+  _setZoom(zoom) {
+    const scroll = this.shadowRoot.querySelector(".scroll");
+    const track = this.shadowRoot.querySelector(".track");
+    if (!scroll || !track) return;
+    // Keep the moment under the middle of the bar in place while the scale changes.
+    const anchor = this._rec.cursor != null
+      ? this._rec.cursor / 86400
+      : (scroll.scrollLeft + scroll.clientWidth / 2) / track.offsetWidth;
+    this._rec.zoom = Math.max(1, Math.min(48, zoom));
+    track.style.width = `${this._rec.zoom * 100}%`;
+    this._labelHours(track);
+    scroll.scrollLeft = anchor * track.offsetWidth - scroll.clientWidth / 2;
+  }
+
+  _labelHours(track) {
+    const perHour = track.offsetWidth / 24;
+    const step = perHour >= 46 ? 1 : perHour >= 23 ? 2 : perHour >= 12 ? 4 : 6;
+    for (const tick of track.querySelectorAll(".hour")) {
+      tick.classList.toggle("quiet", Number(tick.dataset.hour) % step !== 0);
+    }
   }
 
   _renderRecordings(card) {
+    const rec = this._rec;
     const box = document.createElement("div");
     box.className = "rec";
     card.append(box);
 
-    if (this._playing) {
-      const frame = document.createElement("div");
-      frame.className = "player";
-      if (this._playing.url) {
-        // Safari plays HLS by itself; everywhere else Home Assistant's player does.
-        const own = customElements.get("ha-hls-player");
-        const player = document.createElement(own ? "ha-hls-player" : "video");
-        if (own) {
-          player.hass = this._hass;
-          player.url = this._playing.url;
-        } else {
-          player.src = this._playing.url;
-        }
-        player.controls = true;
-        player.autoplay = true;
-        player.muted = true;
-        player.playsInline = true;
-        player.playsinline = true;
-        this._player = player;
-        frame.append(player);
+    const frame = document.createElement("div");
+    frame.className = "player";
+    if (rec.url) {
+      // Safari plays HLS by itself; everywhere else Home Assistant's player does.
+      const own = customElements.get("ha-hls-player");
+      const player = document.createElement(own ? "ha-hls-player" : "video");
+      if (own) {
+        player.hass = this._hass;
+        player.url = rec.url;
+      } else {
+        player.src = rec.url;
       }
-      box.append(frame);
+      player.controls = true;
+      player.autoplay = true;
+      player.muted = true;
+      player.playsInline = true;
+      player.playsinline = true;
+      this._player = player;
+      frame.append(player);
+    } else {
+      const hint = document.createElement("div");
+      hint.className = "hint";
+      hint.textContent = rec.note || (rec.at != null
+        ? this._t("starting")
+        : rec.error || (rec.ranges === null
+          ? this._t("loading")
+          : rec.ranges.length ? this._t("pick_time") : this._t("no_recordings_day")));
+      frame.append(hint);
     }
+    box.append(frame);
 
-    const node = this._trail[this._trail.length - 1];
-    const crumb = document.createElement("div");
-    crumb.className = "crumb";
-    crumb.textContent = this._trail
-      .slice(1)
-      .map((step) => step.title)
-      .concat(this._playing ? [this._playing.title] : [])
-      .join(" › ");
-    if (crumb.textContent) box.append(crumb);
+    const chips = document.createElement("div");
+    chips.className = "chips";
+    for (let channel = 1; channel <= (rec.channels || 1); channel += 1) {
+      chips.append(this._button("mdi:cctv", this._t("channel", { n: channel }),
+        () => channel !== rec.channel && this._loadDay({ channel }),
+        { on: channel === rec.channel }));
+    }
+    box.append(chips);
 
-    const list = document.createElement("div");
-    list.className = "list";
-    if (this._trail.length > 1) {
-      list.append(this._button("mdi:arrow-left", this._t("back"), () => {
-        this._trail.pop();
-        this._playing = null;
-        this._render();
-      }));
-    }
-    for (const child of (node && node.children) || []) {
-      const playing = this._playing && this._playing.id === child.media_content_id;
-      list.append(
-        this._button(
-          child.can_play ? "mdi:play-circle-outline" : "mdi:folder-outline",
-          child.title,
-          () => (child.can_play ? this._play(child) : this._open(child.media_content_id)),
-          { on: playing }
-        )
-      );
-    }
-    box.append(list);
+    const nav = document.createElement("div");
+    nav.className = "nav";
+    const date = document.createElement("input");
+    date.type = "date";
+    date.value = rec.day || "";
+    date.max = rec.today || "";
+    date.setAttribute("aria-label", this._t("date"));
+    date.addEventListener("change", () => date.value && this._loadDay({ day: date.value }));
+    const now = document.createElement("div");
+    now.className = "now";
+    const next = this._button("mdi:chevron-right", this._t("next_day"),
+      () => this._loadDay({ day: this._day(1) }), { text: false });
+    next.disabled = !rec.day || rec.day >= (rec.today || "");
+    nav.append(
+      this._button("mdi:chevron-left", this._t("prev_day"),
+        () => rec.day && this._loadDay({ day: this._day(-1) }), { text: false }),
+      date,
+      next,
+      now,
+      this._button("mdi:rewind-60", this._t("back_1m"),
+        () => rec.cursor != null && this._playAt(rec.cursor - 60), { text: false }),
+      this._button("mdi:fast-forward-60", this._t("fwd_1m"),
+        () => rec.cursor != null && this._playAt(rec.cursor + 60), { text: false }),
+      this._button("mdi:magnify-minus-outline", this._t("zoom_out"),
+        () => this._setZoom(rec.zoom / 2), { text: false }),
+      this._button("mdi:magnify-plus-outline", this._t("zoom_in"),
+        () => this._setZoom(rec.zoom * 2), { text: false })
+    );
+    box.append(nav);
 
-    const note = this._error
-      ? this._error
-      : this._busy
-        ? this._t("loading")
-        : node && !(node.children || []).length
-          ? this._t("empty_folder")
-          : null;
-    if (note) {
-      const empty = document.createElement("div");
-      empty.className = "empty";
-      empty.textContent = note;
-      box.append(empty);
+    const scroll = document.createElement("div");
+    scroll.className = "scroll";
+    const track = document.createElement("div");
+    track.className = "track";
+    track.style.width = `${rec.zoom * 100}%`;
+    for (let hour = 0; hour < 24; hour += 1) {
+      const tick = document.createElement("div");
+      tick.className = "hour";
+      tick.dataset.hour = hour;
+      tick.style.left = `${(hour / 24) * 100}%`;
+      tick.textContent = `${String(hour).padStart(2, "0")}:00`;
+      track.append(tick);
     }
+    for (const [from, to] of rec.ranges || []) {
+      const block = document.createElement("div");
+      block.className = "block";
+      block.style.left = `${(from / 86400) * 100}%`;
+      block.style.width = `${((to - from) / 86400) * 100}%`;
+      track.append(block);
+    }
+    const line = document.createElement("div");
+    line.className = "cursor";
+    line.hidden = true;
+    track.append(line);
+    track.addEventListener("click", (ev) => {
+      const box = track.getBoundingClientRect();
+      this._playAt(((ev.clientX - box.left) / box.width) * 86400);
+    });
+    scroll.append(track);
+    box.append(scroll);
+
+    this._moveCursor();
+    // Widths are only real once the browser has laid the new nodes out.
+    requestAnimationFrame(() => {
+      this._labelHours(track);
+      if (rec.cursor != null) {
+        scroll.scrollLeft = (rec.cursor / 86400) * track.offsetWidth - scroll.clientWidth / 2;
+      }
+    });
+    clearInterval(this._tick);
+    if (rec.url) this._tick = setInterval(() => this._moveCursor(), 1000);
   }
 }
 

@@ -20,3 +20,9 @@
 - `mediaFileFind.cgi` wants `%20`, queries are 1-based and answers 0-based.
 - Releases are `gh release create vX.Y.Z`; HACS and the Marketplace only offer
   what has a published release.
+- Recordings are a day timeline fed by the `intelbras_dvr/recordings` websocket command
+  (seconds since midnight, merged). The DVR only plays from an instant, so every
+  tap resolves a new `PLAY|entry|channel|start|end` stream of `WINDOW` seconds;
+  there is no seeking inside one.
+- To test a card that is already installed, serve the development file under another
+  element name, or `customElements.define` throws and the old class answers.

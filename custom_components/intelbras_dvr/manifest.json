@@ -8,7 +8,8 @@
     "http",
     "media_source",
     "panel_custom",
-    "stream"
+    "stream",
+    "websocket_api"
   ],
   "documentation": "https://github.com/constantini-ha/intelbras_dvr",
   "domain": "intelbras_dvr",
@@ -19,5 +20,5 @@
   "requirements": [
     "httpx>=0.24"
   ],
-  "version": "0.5.0"
+  "version": "0.6.0"
 }

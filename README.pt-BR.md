@@ -55,6 +55,10 @@ entities:             # opcional, o padrão são todos os canais do DVR
   - camera.dvr_canal_1
 ```
 
+As gravações abrem como uma linha do tempo do dia: escolha o canal e a data,
+veja quais trechos estão no disco e toque em qualquer momento para assistir
+dali. Aproxime a barra para ter precisão e pule um minuto para trás ou para a frente.
+
 Nenhuma outra biblioteca de card é necessária. A página e o card falam
 português, inglês e espanhol, seguindo o Home Assistant.
 

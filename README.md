@@ -54,6 +54,10 @@ entities:             # optional, default is every DVR channel
   - camera.dvr_canal_1
 ```
 
+Recordings open as a day timeline: pick the channel and the date, see which
+stretches are on disk, and tap any moment to watch from there. Zoom the bar
+for precision and jump a minute back or forward.
+
 No other card library is needed. The page and the card speak English,
 Portuguese and Spanish, following Home Assistant.
 
