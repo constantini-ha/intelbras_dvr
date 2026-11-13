@@ -175,7 +175,7 @@ class IntelbrasDvrPanel extends HTMLElement {
       main.append(flash);
     }
     if (this._settings && admin) main.append(this._settingsForm());
-    if (!card._config) card.setConfig({ columns: 2 });
+    if (!card._config) card.setConfig({ columns: 2, default_view: "timeline" });
     card.hass = this._hass;
     main.append(card);
     root.append(style, top, main);

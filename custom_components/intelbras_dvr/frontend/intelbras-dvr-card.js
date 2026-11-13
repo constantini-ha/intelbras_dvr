@@ -4,6 +4,14 @@ const PLATFORM = "intelbras_dvr";
 const ROOT = "media-source://intelbras_dvr";
 // How much video one request to the DVR covers, in seconds.
 const WINDOW = 1800;
+const DAY = 86400;
+// How much of the day fits across the timeline, and the gap between its labels.
+const SPANS = [
+  { seconds: 600, label: "10 min", step: 120 },
+  { seconds: 3600, label: "1 h", step: 600 },
+  { seconds: 21600, label: "6 h", step: 3600 },
+  { seconds: 86400, label: "24 h", step: 14400 },
+];
 
 const STYLE = `
   :host { display:block }
@@ -17,10 +25,13 @@ const STYLE = `
   .bar .title { flex:1; min-width:0; font-size:16px; font-weight:500; white-space:nowrap;
     overflow:hidden; text-overflow:ellipsis; color:var(--primary-text-color) }
   :host(.full) .bar .title, :host(:fullscreen) .bar .title { color:#fff }
-  .bar button { all:unset; cursor:pointer; display:inline-flex; align-items:center; gap:6px;
-    min-height:36px; padding:0 10px; border-radius:18px; font-size:13px;
-    color:var(--secondary-text-color); --mdc-icon-size:20px }
-  .bar button:hover, .bar button:focus-visible { background:var(--secondary-background-color) }
+  button { all:unset; box-sizing:border-box; cursor:pointer; display:inline-flex; align-items:center;
+    justify-content:center; gap:6px; -webkit-tap-highlight-color:transparent; --mdc-icon-size:20px }
+  button:focus-visible { outline:2px solid var(--primary-color); outline-offset:1px }
+  button[disabled] { opacity:.35; cursor:default }
+  .bar button { min-height:36px; padding:0 10px; border-radius:18px; font-size:13px;
+    color:var(--secondary-text-color) }
+  .bar button:hover { background:var(--secondary-background-color) }
   .bar button.on { color:var(--primary-color);
     background:color-mix(in srgb, var(--primary-color) 14%, transparent) }
   .bar button.icon { padding:0 8px }
@@ -28,61 +39,84 @@ const STYLE = `
   :host(.full) .bar button:hover, :host(:fullscreen) .bar button:hover { background:rgba(255,255,255,.16) }
   .grid { display:grid; gap:3px; background:#000; flex:1; min-height:0 }
   .cell { position:relative; background:#000; overflow:hidden; min-width:0; min-height:72px }
-  .cell > .stream > * { display:block; --ha-card-border-radius:0;
-    --ha-card-border-width:0; --ha-card-box-shadow:none; --ha-card-background:#000 }
-  .cell .tap { all:unset; position:absolute; inset:0; cursor:pointer }
-  .cell .tap:focus-visible { outline:2px solid var(--primary-color); outline-offset:-2px }
+  .stream > * { display:block; --ha-card-border-radius:0; --ha-card-border-width:0;
+    --ha-card-box-shadow:none; --ha-card-background:#000 }
+  .cell .tap { position:absolute; inset:0 }
+  .cell .tap:focus-visible { outline-offset:-2px }
   .cell .name { position:absolute; right:8px; bottom:8px; padding:2px 8px; border-radius:10px;
     background:rgba(0,0,0,.55); color:#fff; font-size:12px; pointer-events:none }
-  .grid.focus { display:flex; align-items:center; justify-content:center }
-  .grid.focus .cell { display:none }
-  .grid.focus .cell.sel { display:block; width:100% }
-  .grid.focus .name { display:none }
-  :host(.full) .grid.focus .cell.sel, :host(:fullscreen) .grid.focus .cell.sel {
-    width:min(100%, calc((100vh - 56px) * var(--ratio, 1.5))) }
-  :host(.full) .grid:not(.focus), :host(:fullscreen) .grid:not(.focus) { align-content:center }
+  :host(.full) .grid, :host(:fullscreen) .grid { align-content:center }
   .empty { padding:24px 16px; color:var(--secondary-text-color); text-align:center }
-  .rec { display:flex; flex-direction:column; min-height:0; flex:1; background:var(--card-background-color) }
-  .player { background:#000; aspect-ratio:16/9; max-height:70vh }
-  .player > * { display:block; width:100%; height:100% }
-  .player { position:relative }
+
+  .rec { display:flex; flex-direction:column; min-height:0; flex:1;
+    background:var(--card-background-color); color:var(--primary-text-color) }
+  .player { position:relative; background:#000; aspect-ratio:16/9; max-height:62vh; overflow:hidden }
+  .player > .video { display:block; width:100%; height:100% }
   .player.live { aspect-ratio:auto; max-height:none; min-height:72px }
-  .player.live > .stream { height:auto }
-  .player.live > .stream > * { display:block; --ha-card-border-radius:0;
-    --ha-card-border-width:0; --ha-card-box-shadow:none; --ha-card-background:#000 }
-  .badge { position:absolute; left:8px; top:8px; width:auto; height:auto; padding:2px 8px;
-    border-radius:10px; background:rgba(0,0,0,.55); color:#fff; font-size:12px; pointer-events:none }
-  .tip { padding:8px 14px 0; font-size:13px; color:var(--secondary-text-color) }
+  :host(.full) .player, :host(:fullscreen) .player { flex:1; min-height:0; max-height:none;
+    aspect-ratio:auto; display:flex; align-items:center; justify-content:center }
+  :host(.full) .player.live > .stream, :host(:fullscreen) .player.live > .stream {
+    width:min(100%, calc((100vh - 330px) * 1.5)) }
   .hint { position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
     padding:16px; text-align:center; color:rgba(255,255,255,.78); font-size:14px }
-  .chips, .nav { display:flex; align-items:center; gap:6px; padding:8px 12px 0; flex-wrap:wrap }
-  .chips button, .nav button { all:unset; cursor:pointer; display:inline-flex; align-items:center;
-    gap:6px; min-height:36px; padding:0 12px; border-radius:18px; font-size:13px;
-    background:var(--secondary-background-color); color:var(--primary-text-color);
-    --mdc-icon-size:20px }
-  .nav button { padding:0 8px }
-  .chips button.on { background:var(--primary-color); color:var(--text-primary-color) }
-  .chips button:focus-visible, .nav button:focus-visible, .nav input:focus-visible {
-    outline:2px solid var(--primary-color); outline-offset:1px }
-  .nav button[disabled] { opacity:.4; cursor:default }
-  .nav input { font:inherit; font-size:14px; min-height:36px; padding:0 8px; border-radius:10px;
-    border:1px solid var(--divider-color); background:var(--secondary-background-color);
+  .badge { position:absolute; left:8px; top:8px; display:flex; align-items:center; gap:6px;
+    padding:3px 9px; border-radius:10px; background:rgba(0,0,0,.55); color:#fff; font-size:12px;
+    pointer-events:none }
+  .badge::before { content:""; width:7px; height:7px; border-radius:50%; background:#ff4d4d }
+  .chips { display:flex; gap:6px; padding:10px 12px 0; overflow-x:auto; scrollbar-width:none }
+  .chips::-webkit-scrollbar { display:none }
+  .pill { flex:none; min-height:36px; padding:0 14px; border-radius:18px; font-size:13px;
+    white-space:nowrap; border:1px solid var(--outline-color, var(--divider-color)) }
+  .pill:not([disabled]):hover { background:var(--secondary-background-color) }
+  .pill.on { border-color:transparent; background:var(--primary-color); color:var(--text-primary-color) }
+  .nav { display:flex; align-items:center; gap:6px; padding:10px 12px 0 }
+  .nav input { box-sizing:border-box; flex:1; min-width:0; max-width:190px; font:inherit; font-size:14px;
+    min-height:36px; padding:0 10px; border-radius:18px;
+    border:1px solid var(--outline-color, var(--divider-color)); background:transparent;
     color:var(--primary-text-color); color-scheme:light dark }
-  .now { flex:1; min-width:76px; text-align:center; font-size:16px; font-weight:500;
-    font-variant-numeric:tabular-nums; color:var(--primary-text-color) }
-  .scroll { overflow-x:auto; margin:10px 12px 14px; border-radius:10px;
+  .nav input:focus-visible { outline:2px solid var(--primary-color); outline-offset:1px }
+  .round { flex:none; width:36px; height:36px; border-radius:50% }
+  .round:not([disabled]):hover { background:var(--secondary-background-color) }
+  .nav .gap { flex:1 }
+  .now { padding:10px 12px 2px; text-align:center; font-size:15px; font-weight:500;
+    font-variant-numeric:tabular-nums; color:var(--secondary-text-color) }
+  .timeline { position:relative; margin:0 0 2px; overflow:hidden; contain:inline-size;
     background:var(--secondary-background-color) }
-  .track { position:relative; height:64px; min-width:100%; cursor:pointer }
-  .hour { position:absolute; top:0; bottom:0; padding:4px 0 0 4px; font-size:10px;
-    color:var(--secondary-text-color); border-left:1px solid var(--divider-color);
-    white-space:nowrap; pointer-events:none }
-  .hour.quiet { color:transparent }
-  .block { position:absolute; top:26px; height:26px; min-width:1px; border-radius:2px;
-    background:var(--primary-color); opacity:.85; pointer-events:none }
-  .cursor { position:absolute; top:0; bottom:0; width:2px; margin-left:-1px;
-    background:var(--error-color, #db4437); pointer-events:none }
-  .cursor[hidden] { display:none }
+  .scroll { overflow-x:auto; overflow-y:hidden; scrollbar-width:none; cursor:grab;
+    touch-action:pan-x; -webkit-overflow-scrolling:touch; overscroll-behavior-x:contain }
+  .scroll::-webkit-scrollbar { display:none }
+  .scroll.drag { cursor:grabbing }
+  .pad { width:max-content }
+  .track { position:relative; height:108px }
+  .block { position:absolute; top:26px; height:40px; min-width:2px; border-radius:20px;
+    background:var(--primary-color); opacity:.9 }
+  .tick { position:absolute; bottom:0; height:30px; padding:0 0 4px 5px; display:flex;
+    align-items:flex-end; font-size:11px; font-variant-numeric:tabular-nums; white-space:nowrap;
+    color:var(--secondary-text-color); border-left:1px solid var(--divider-color) }
+  .needle { position:absolute; top:0; bottom:0; left:50%; width:2px; margin-left:-1px;
+    background:var(--primary-text-color); opacity:.55; pointer-events:none }
+  .needle::after { content:""; position:absolute; left:-4px; bottom:0; border:5px solid transparent;
+    border-bottom-color:var(--primary-text-color) }
+  .transport { display:flex; align-items:center; gap:10px; padding:10px 12px 14px }
+  .transport .side { flex:1; display:flex; align-items:center }
+  .transport .side.end { justify-content:flex-end }
+  .transport .round { width:44px; height:44px; --mdc-icon-size:24px }
+  .transport .main { width:56px; height:56px; border:2px solid var(--primary-text-color);
+    --mdc-icon-size:30px }
+  .golive.on { border-color:transparent;
+    background:color-mix(in srgb, var(--primary-color) 16%, transparent); color:var(--primary-color) }
+  .golive::before { content:""; width:7px; height:7px; border-radius:50%; background:currentColor;
+    opacity:.6 }
+  .golive.on::before { background:#ff4d4d; opacity:1 }
 `;
+
+const pad = (n) => String(n).padStart(2, "0");
+
+function clock(second, seconds = true) {
+  const s = Math.max(0, Math.min(DAY - 1, Math.floor(second)));
+  const text = `${pad(Math.floor(s / 3600))}:${pad(Math.floor((s % 3600) / 60))}`;
+  return seconds ? `${text}:${pad(s % 60)}` : text;
+}
 
 class IntelbrasDvrCard extends HTMLElement {
   static getStubConfig() {
@@ -103,22 +137,22 @@ class IntelbrasDvrCard extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: "open" });
-    this._view = "live";
-    this._focus = null;
+    this._view = null;
     this._streams = [];
-    this._rec = { channel: 1, day: null, ranges: null, zoom: 1, at: null, cursor: null };
+    this._rec = { channel: 1, day: null, ranges: null, span: 3600, at: null, cursor: null };
   }
 
   setConfig(config) {
     this._config = { columns: 2, ...config };
-    if (this._hass) this._render();
+    if (!this._view) this._view = this._config.default_view === "timeline" ? "rec" : "live";
+    if (this._hass) this._start();
   }
 
   set hass(hass) {
     const first = !this._hass;
     this._hass = hass;
     if (first) {
-      this._render();
+      this._start();
       return;
     }
     for (const card of this._streams) card.hass = hass;
@@ -128,6 +162,11 @@ class IntelbrasDvrCard extends HTMLElement {
     if (this._view === "live" && this._cameras().join() !== this._shown) this._render();
   }
 
+  _start() {
+    if (this._view === "rec") this._loadDay();
+    else this._render();
+  }
+
   connectedCallback() {
     this._onFull = () => this._syncFullButton();
     document.addEventListener("fullscreenchange", this._onFull);
@@ -135,12 +174,14 @@ class IntelbrasDvrCard extends HTMLElement {
       if (ev.key === "Escape" && this.classList.contains("full")) this._toggleFull();
     };
     document.addEventListener("keydown", this._onKey);
+    if (this._hass && this._view === "rec" && !this._tick) this._startTick();
   }
 
   disconnectedCallback() {
     document.removeEventListener("fullscreenchange", this._onFull);
     document.removeEventListener("keydown", this._onKey);
     clearInterval(this._tick);
+    this._tick = null;
   }
 
   getCardSize() {
@@ -224,7 +265,7 @@ class IntelbrasDvrCard extends HTMLElement {
     button.className = `${on ? "on" : ""} ${text ? "" : "icon"} ${cls}`.trim();
     button.title = label;
     button.setAttribute("aria-label", label);
-    button.innerHTML = `<ha-icon icon="${icon}"></ha-icon>${text ? `<span></span>` : ""}`;
+    button.innerHTML = `${icon ? `<ha-icon icon="${icon}"></ha-icon>` : ""}${text ? "<span></span>" : ""}`;
     if (text) button.querySelector("span").textContent = label;
     button.addEventListener("click", onClick);
     return button;
@@ -235,6 +276,7 @@ class IntelbrasDvrCard extends HTMLElement {
     root.innerHTML = "";
     this._streams = [];
     this._player = null;
+    this._parts = null;
     const style = document.createElement("style");
     style.textContent = STYLE;
     const card = document.createElement("ha-card");
@@ -242,20 +284,14 @@ class IntelbrasDvrCard extends HTMLElement {
 
     const bar = document.createElement("div");
     bar.className = "bar";
-    if (this._view === "live" && this._focus) {
-      bar.append(this._button("mdi:arrow-left", this._t("back"), () => {
-        this._focus = null;
-        this._applyFocus();
-      }, { text: false, cls: "backbtn" }));
-    }
     const title = document.createElement("div");
     title.className = "title";
     title.textContent = this._config.title || this._t("cameras");
     bar.append(
       title,
-      this._button("mdi:cctv", this._t("live"), () => this._show("live"),
+      this._button("mdi:view-grid-outline", this._t("mosaic"), () => this._show("live"),
         { on: this._view === "live" }),
-      this._button("mdi:history", this._t("recordings"), () => this._show("rec"),
+      this._button("mdi:cctv", this._t("camera"), () => this._show("rec"),
         { on: this._view === "rec" }),
       this._button("mdi:fullscreen", this._t("fullscreen"), () => this._toggleFull(),
         { text: false, cls: "fullbtn" })
@@ -264,18 +300,20 @@ class IntelbrasDvrCard extends HTMLElement {
     this._syncFullButton();
 
     if (this._view === "live") this._renderLive(card);
-    else this._renderRecordings(card);
+    else this._renderTimeline(card);
   }
 
-  _show(view) {
-    if (view === this._view) return;
+  _show(view, channel) {
+    if (view === this._view && !channel) return;
     this._view = view;
     if (view === "rec") {
-      this._loadDay();
+      this._loadDay({ day: null, ...(channel ? { channel } : {}) });
       return;
     }
     this._stop();
     this._recLive = null;
+    clearInterval(this._tick);
+    this._tick = null;
     this._render();
   }
 
@@ -294,13 +332,24 @@ class IntelbrasDvrCard extends HTMLElement {
     return live;
   }
 
-  _channelCamera(channel) {
+  _ownCameras() {
     const registry = this._hass.entities || {};
-    const own = Object.keys(registry)
+    return Object.keys(registry)
       .filter((id) => id.startsWith("camera.") && registry[id].platform === PLATFORM &&
         !registry[id].hidden)
       .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  }
+
+  _channelCamera(channel) {
+    const own = this._ownCameras();
     return own.find((id) => new RegExp(`\\D${channel}$`).test(id)) || own[channel - 1] || null;
+  }
+
+  _cameraChannel(entityId) {
+    const own = this._ownCameras();
+    const tail = /\D(\d+)$/.exec(entityId);
+    if (own.includes(entityId) && tail) return Number(tail[1]);
+    return own.indexOf(entityId) + 1 || 1;
   }
 
   // Kept across renders, so loading a day does not restart the live picture.
@@ -332,14 +381,12 @@ class IntelbrasDvrCard extends HTMLElement {
     const columns = Math.max(1, Math.min(Number(this._config.columns) || 2, cameras.length));
     grid.style.gridTemplateColumns = `repeat(${columns}, minmax(0, 1fr))`;
     card.append(grid);
-    this._grid = grid;
 
     const helpers = await window.loadCardHelpers();
     if (!grid.isConnected) return;
     for (const entityId of cameras) {
       const cell = document.createElement("div");
       cell.className = "cell";
-      cell.dataset.entity = entityId;
       const stream = document.createElement("div");
       stream.className = "stream";
       const live = this._liveCard(helpers, entityId);
@@ -349,43 +396,14 @@ class IntelbrasDvrCard extends HTMLElement {
       tap.className = "tap";
       const name = this._name(entityId);
       tap.setAttribute("aria-label", name);
-      tap.addEventListener("click", () => {
-        // The picture's own shape, so a full screen can fit it by height too.
-        const box = cell.getBoundingClientRect();
-        if (!this._focus && box.height > 80) cell.style.setProperty("--ratio", box.width / box.height);
-        this._focus = this._focus === entityId ? null : entityId;
-        this._applyFocus();
-      });
+      // A tap opens that camera alone, with its timeline.
+      tap.addEventListener("click", () => this._show("rec", this._cameraChannel(entityId)));
       const label = document.createElement("div");
       label.className = "name";
       label.textContent = name;
       cell.append(stream, tap, label);
       grid.append(cell);
     }
-    this._applyFocus();
-  }
-
-  // Enlarging keeps every stream alive, so going back to the grid is instant.
-  _applyFocus() {
-    if (!this._grid) return;
-    if (this._focus && !this._cameras().includes(this._focus)) this._focus = null;
-    this._grid.classList.toggle("focus", !!this._focus);
-    for (const cell of this._grid.children) {
-      cell.classList.toggle("sel", cell.dataset.entity === this._focus);
-    }
-    const bar = this.shadowRoot.querySelector(".bar");
-    const back = bar.querySelector(".backbtn");
-    if (this._focus && !back) {
-      bar.prepend(this._button("mdi:arrow-left", this._t("back"), () => {
-        this._focus = null;
-        this._applyFocus();
-      }, { text: false, cls: "backbtn" }));
-    } else if (!this._focus && back) {
-      back.remove();
-    }
-    bar.querySelector(".title").textContent = this._focus
-      ? this._name(this._focus)
-      : this._config.title || this._t("cameras");
   }
 
   _day(offset = 0) {
@@ -394,17 +412,38 @@ class IntelbrasDvrCard extends HTMLElement {
     return date.toISOString().slice(0, 10);
   }
 
+  // The DVR's day is Home Assistant's, which may not be the clock of this browser.
+  _nowSecond() {
+    if (!this._zone) {
+      this._zone = new Intl.DateTimeFormat("en-GB", {
+        timeZone: this._hass.config.time_zone, hourCycle: "h23",
+        hour: "2-digit", minute: "2-digit", second: "2-digit",
+      });
+    }
+    const [h, m, s] = this._zone.format(new Date()).split(":").map(Number);
+    return h * 3600 + m * 60 + s;
+  }
+
+  _isToday() {
+    return !!this._rec.day && this._rec.day === this._rec.today;
+  }
+
+  _fetchRanges() {
+    return this._hass.callWS({
+      type: "intelbras_dvr/recordings",
+      channel: this._rec.channel,
+      ...(this._rec.day ? { day: this._rec.day } : {}),
+    });
+  }
+
   async _loadDay(change = {}) {
     this._stop();
     Object.assign(this._rec, change, { ranges: null, error: null, cursor: null });
     this._render();
+    this._startTick();
     const asked = `${this._rec.channel}|${this._rec.day}`;
     try {
-      const answer = await this._hass.callWS({
-        type: "intelbras_dvr/recordings",
-        channel: this._rec.channel,
-        ...(this._rec.day ? { day: this._rec.day } : {}),
-      });
+      const answer = await this._fetchRanges();
       if (asked !== `${this._rec.channel}|${this._rec.day}`) return;
       Object.assign(this._rec, {
         entry: answer.entry_id,
@@ -413,41 +452,64 @@ class IntelbrasDvrCard extends HTMLElement {
         channels: answer.channels,
         ranges: answer.ranges,
       });
+      this._refreshed = Date.now();
     } catch (err) {
       this._rec.ranges = [];
       this._rec.error = this._t("browse_failed", { err: err.message || String(err) });
     }
-    if (this._view === "rec") this._render();
+    if (this._view !== "rec") return;
+    // Another day opens on its first recording; today opens live, at the present.
+    if (!this._isToday() && this._rec.ranges.length) this._rec.cursor = this._rec.ranges[0][0];
+    this._render();
   }
 
   _stop() {
-    clearInterval(this._tick);
-    this._tick = null;
     this._player = null;
-    Object.assign(this._rec, { at: null, url: null, note: null });
+    Object.assign(this._rec, { at: null, url: null, note: null, paused: false });
+  }
+
+  _goLive() {
+    this._stop();
+    if (!this._isToday()) {
+      this._loadDay({ day: null });
+      return;
+    }
+    this._rec.cursor = null;
+    this._fillPlayer();
+    this._follow();
   }
 
   // The DVR plays from an instant, so moving on the timeline starts a new stream there.
   async _playAt(second) {
     const ranges = this._rec.ranges || [];
+    const today = this._isToday();
+    if (today && second >= this._nowSecond() - 5) {
+      this._goLive();
+      return;
+    }
     const inside = ranges.find(([from, to]) => second >= from && second < to - 2);
     const next = inside ? null : ranges.find(([from]) => from > second);
     if (!inside && !next) {
+      if (today) {
+        this._goLive();
+        return;
+      }
       this._stop();
       this._rec.note = this._t("no_recording_there");
-      this._render();
+      this._rec.cursor = second;
+      this._fillPlayer();
       return;
     }
     const at = Math.max(0, Math.floor(inside ? second : next[0]));
     this._stop();
     this._recLive = null;
     Object.assign(this._rec, { at, cursor: at });
-    this._render();
+    this._fillPlayer();
+    this._follow();
     const stamp = (value) => {
-      const pad = (n) => String(n).padStart(2, "0");
-      const clock = Math.min(value, 86399);
+      const s = Math.min(value, DAY - 1);
       return this._rec.day.replaceAll("-", "") +
-        pad(Math.floor(clock / 3600)) + pad(Math.floor((clock % 3600) / 60)) + pad(clock % 60);
+        pad(Math.floor(s / 3600)) + pad(Math.floor((s % 3600) / 60)) + pad(s % 60);
     };
     try {
       const media = await this._hass.callWS({
@@ -462,7 +524,7 @@ class IntelbrasDvrCard extends HTMLElement {
       this._stop();
       this._rec.note = this._t("play_failed", { err: err.message || String(err) });
     }
-    if (this._view === "rec") this._render();
+    if (this._view === "rec") this._fillPlayer();
   }
 
   _video() {
@@ -473,89 +535,188 @@ class IntelbrasDvrCard extends HTMLElement {
       : player.shadowRoot && player.shadowRoot.querySelector("video");
   }
 
-  _clock(second) {
-    const pad = (n) => String(n).padStart(2, "0");
-    const s = Math.max(0, Math.min(86399, Math.floor(second)));
-    return `${pad(Math.floor(s / 3600))}:${pad(Math.floor((s % 3600) / 60))}:${pad(s % 60)}`;
+  _togglePause() {
+    const rec = this._rec;
+    if (rec.at == null) return;
+    if (rec.paused) {
+      // The stream kept running while paused, so resuming asks for that moment again.
+      this._playAt(rec.cursor);
+      return;
+    }
+    rec.paused = true;
+    const video = this._video();
+    if (video) video.pause();
+    this._syncControls(rec.cursor);
   }
 
-  _moveCursor() {
+  _isLive() {
+    return this._rec.at == null && this._isToday() && !this._seeking && !this._rec.note;
+  }
+
+  _startTick() {
+    clearInterval(this._tick);
+    this._tick = setInterval(() => this._onTick(), 1000);
+  }
+
+  _onTick() {
+    const rec = this._rec;
+    if (this._view !== "rec" || !this._parts) return;
     const video = this._video();
-    if (video && this._rec.at != null) {
-      this._rec.cursor = this._rec.at + (video.currentTime || 0);
+    if (video && !video.dataset.fit && video.videoWidth) {
+      video.dataset.fit = "1";
+      // The DVR records 1080N: half the columns of a 16:9 picture, to be shown stretched.
+      if (video.videoWidth < video.videoHeight) {
+        Object.assign(video.style, { width: "100%", height: "100%", maxHeight: "none", objectFit: "fill" });
+      }
+    }
+    if (this._isToday() && Date.now() - (this._refreshed || 0) > 120000) this._refreshRanges();
+    if (this._seeking || rec.paused) return;
+    if (video && rec.at != null) {
+      rec.cursor = rec.at + (video.currentTime || 0);
       const done = video.ended || (video.currentTime || 0) >= WINDOW - 2;
-      if (done && this._rec.at + WINDOW < 86400) {
-        this._playAt(this._rec.at + WINDOW);
+      if (done && rec.at + WINDOW < DAY) {
+        this._playAt(rec.at + WINDOW);
         return;
       }
     }
-    const root = this.shadowRoot;
-    const line = root.querySelector(".cursor");
-    const now = root.querySelector(".now");
-    if (line && this._rec.cursor != null) {
-      line.style.left = `${(this._rec.cursor / 86400) * 100}%`;
-      line.hidden = false;
-    }
-    if (now) {
-      now.textContent = this._rec.at != null && this._rec.cursor != null
-        ? this._clock(this._rec.cursor)
-        : this._rec.live ? this._t("live") : "--:--:--";
-    }
+    this._follow();
   }
 
-  _setZoom(zoom) {
-    const scroll = this.shadowRoot.querySelector(".scroll");
-    const track = this.shadowRoot.querySelector(".track");
-    if (!scroll || !track) return;
-    // Keep the moment under the middle of the bar in place while the scale changes.
-    const anchor = this._rec.cursor != null
-      ? this._rec.cursor / 86400
-      : (scroll.scrollLeft + scroll.clientWidth / 2) / track.offsetWidth;
-    this._rec.zoom = Math.max(1, Math.min(48, zoom));
-    track.style.width = `${this._rec.zoom * 100}%`;
-    this._labelHours(track);
-    scroll.scrollLeft = anchor * track.offsetWidth - scroll.clientWidth / 2;
+  // Today keeps growing, so the recorded stretch is drawn again from time to time.
+  async _refreshRanges() {
+    this._refreshed = Date.now();
+    const asked = `${this._rec.channel}|${this._rec.day}`;
+    try {
+      const answer = await this._fetchRanges();
+      if (asked !== `${this._rec.channel}|${this._rec.day}` || !this._parts) return;
+      this._rec.ranges = answer.ranges;
+      this._rec.today = answer.today;
+      this._drawBlocks();
+    } catch (_) { /* the next round tries again */ }
   }
 
-  _labelHours(track) {
-    const perHour = track.offsetWidth / 24;
-    const step = perHour >= 46 ? 1 : perHour >= 23 ? 2 : perHour >= 12 ? 4 : 6;
-    for (const tick of track.querySelectorAll(".hour")) {
-      tick.classList.toggle("quiet", Number(tick.dataset.hour) % step !== 0);
-    }
+  _center() {
+    const { scroll, track } = this._parts;
+    if (!track.offsetWidth) return 0;
+    return Math.max(0, Math.min(DAY - 1, (scroll.scrollLeft / track.offsetWidth) * DAY));
   }
 
-  _renderRecordings(card) {
+  _scrollTo(second) {
+    const { scroll, track } = this._parts;
+    const left = Math.round((second / DAY) * track.offsetWidth);
+    if (Math.abs(scroll.scrollLeft - left) < 1) return;
+    this._autoUntil = performance.now() + 250;
+    scroll.scrollLeft = left;
+  }
+
+  _shownSecond() {
+    if (this._seeking) return this._center();
+    if (this._isLive()) return this._nowSecond();
+    return this._rec.cursor != null ? this._rec.cursor : this._center();
+  }
+
+  // Keeps the needle on the moment being shown: the present when live, the video otherwise.
+  _follow() {
+    if (!this._parts || this._seeking) return;
+    const second = this._shownSecond();
+    this._scrollTo(second);
+    this._syncControls(second);
+    this._drawTicks();
+  }
+
+  _syncControls(second) {
+    const parts = this._parts;
+    if (!parts) return;
     const rec = this._rec;
-    const box = document.createElement("div");
-    box.className = "rec";
-    card.append(box);
-
-    const frame = document.createElement("div");
-    frame.className = "player";
-    const status = rec.note || rec.error || (rec.ranges === null
+    parts.now.textContent = rec.ranges === null
       ? this._t("loading")
-      : rec.ranges.length ? this._t("pick_time") : this._t("no_recordings_day"));
-    const camera = rec.at == null ? this._channelCamera(rec.channel) : null;
-    rec.live = !!camera;
+      : clock(second != null ? second : this._shownSecond());
+    parts.live.classList.toggle("on", this._isLive());
+    parts.pause.disabled = rec.at == null;
+    parts.pause.querySelector("ha-icon").setAttribute("icon", rec.paused ? "mdi:play" : "mdi:pause");
+    parts.pause.title = this._t(rec.paused ? "play" : "pause");
+    parts.pause.setAttribute("aria-label", parts.pause.title);
+  }
+
+  _setSpan(seconds) {
+    const second = this._shownSecond();
+    this._rec.span = seconds;
+    this._sizeTrack();
+    this._scrollTo(second);
+    this._ticksKey = null;
+    this._drawTicks();
+    this._parts.span.querySelector("span").textContent =
+      SPANS.find((entry) => entry.seconds === seconds).label;
+  }
+
+  // Half a strip of padding on each side lets midnight reach the needle.
+  _sizeTrack() {
+    const { scroll, track } = this._parts;
+    const width = scroll.parentNode.clientWidth;
+    track.parentNode.style.padding = `0 ${width / 2}px`;
+    track.style.width = `${Math.round(width * (DAY / this._rec.span))}px`;
+  }
+
+  _drawBlocks() {
+    const { track } = this._parts;
+    for (const old of track.querySelectorAll(".block")) old.remove();
+    for (const [from, to] of this._rec.ranges || []) {
+      const block = document.createElement("div");
+      block.className = "block";
+      block.style.left = `${(from / DAY) * 100}%`;
+      block.style.width = `${((to - from) / DAY) * 100}%`;
+      track.prepend(block);
+    }
+  }
+
+  // Only the labels near the needle exist: at ten minutes across, a day is a very long strip.
+  _drawTicks() {
+    const { track } = this._parts;
+    const span = SPANS.find((entry) => entry.seconds === this._rec.span);
+    const center = this._center();
+    const first = Math.max(0, Math.floor((center - span.seconds) / span.step) * span.step);
+    const last = Math.min(DAY, center + span.seconds);
+    const key = `${span.seconds}|${first}|${track.offsetWidth}`;
+    if (key === this._ticksKey) return;
+    this._ticksKey = key;
+    for (const old of track.querySelectorAll(".tick")) old.remove();
+    for (let second = first; second <= last; second += span.step) {
+      const tick = document.createElement("div");
+      tick.className = "tick";
+      tick.style.left = `${(second / DAY) * track.offsetWidth}px`;
+      tick.textContent = second >= DAY ? "24:00" : clock(second, false);
+      track.append(tick);
+    }
+  }
+
+  _fillPlayer() {
+    const parts = this._parts;
+    if (!parts) return;
+    const rec = this._rec;
+    const frame = parts.frame;
+    this._player = null;
+    const camera = rec.at == null && !rec.note && this._isToday()
+      ? this._channelCamera(rec.channel) : null;
+    frame.className = camera ? "player live" : "player";
+    frame.replaceChildren();
     if (camera) {
-      // Until a moment is picked, the channel shows what is happening now.
-      frame.classList.add("live");
       const badge = document.createElement("div");
       badge.className = "badge";
       badge.textContent = this._t("live");
       frame.append(this._liveHolder(camera), badge);
     } else if (rec.url) {
+      this._recLive = null;
       // Safari plays HLS by itself; everywhere else Home Assistant's player does.
       const own = customElements.get("ha-hls-player");
       const player = document.createElement(own ? "ha-hls-player" : "video");
+      player.className = "video";
       if (own) {
         player.hass = this._hass;
         player.url = rec.url;
       } else {
         player.src = rec.url;
       }
-      player.controls = true;
+      player.controls = false;
       player.autoPlay = true;
       player.autoplay = true;
       player.muted = true;
@@ -564,28 +725,35 @@ class IntelbrasDvrCard extends HTMLElement {
       this._player = player;
       frame.append(player);
     } else {
+      this._recLive = null;
       const hint = document.createElement("div");
       hint.className = "hint";
-      hint.textContent = rec.at != null ? this._t("starting") : status;
+      hint.textContent = rec.note || rec.error || (rec.at != null
+        ? this._t("starting")
+        : rec.ranges === null
+          ? this._t("loading")
+          : rec.ranges.length ? this._t("pick_time") : this._t("no_recordings_day"));
       frame.append(hint);
     }
-    box.append(frame);
-    if (camera) {
-      const tip = document.createElement("div");
-      tip.className = "tip";
-      tip.setAttribute("role", "status");
-      tip.textContent = status;
-      box.append(tip);
-    }
+    this._syncControls();
+  }
+
+  _renderTimeline(card) {
+    const rec = this._rec;
+    const box = document.createElement("div");
+    box.className = "rec";
+    card.append(box);
+
+    const frame = document.createElement("div");
+    frame.className = "player";
 
     const chips = document.createElement("div");
     chips.className = "chips";
-    for (let channel = 1; channel <= (rec.channels || 1); channel += 1) {
-      chips.append(this._button("mdi:cctv", this._t("channel", { n: channel }),
+    for (let channel = 1; channel <= (rec.channels || this._ownCameras().length || 1); channel += 1) {
+      chips.append(this._button("", this._t("channel", { n: channel }),
         () => channel !== rec.channel && this._loadDay({ channel }),
-        { on: channel === rec.channel }));
+        { on: channel === rec.channel, cls: "pill" }));
     }
-    box.append(chips);
 
     const nav = document.createElement("div");
     nav.className = "nav";
@@ -595,73 +763,146 @@ class IntelbrasDvrCard extends HTMLElement {
     date.max = rec.today || "";
     date.setAttribute("aria-label", this._t("date"));
     date.addEventListener("change", () => date.value && this._loadDay({ day: date.value }));
+    const next = this._button("mdi:chevron-right", this._t("next_day"),
+      () => this._loadDay({ day: this._day(1) }), { text: false, cls: "round" });
+    next.disabled = !rec.day || rec.day >= (rec.today || "");
+    const prev = this._button("mdi:chevron-left", this._t("prev_day"),
+      () => rec.day && this._loadDay({ day: this._day(-1) }), { text: false, cls: "round" });
+    const gap = document.createElement("div");
+    gap.className = "gap";
+    const span = this._button("mdi:arrow-expand-horizontal",
+      SPANS.find((entry) => entry.seconds === rec.span).label, () => {
+        const index = SPANS.findIndex((entry) => entry.seconds === this._rec.span);
+        this._setSpan(SPANS[(index + 1) % SPANS.length].seconds);
+      }, { cls: "pill" });
+    span.title = this._t("scale");
+    span.setAttribute("aria-label", span.title);
+    nav.append(prev, date, next, gap, span);
+
     const now = document.createElement("div");
     now.className = "now";
-    const next = this._button("mdi:chevron-right", this._t("next_day"),
-      () => this._loadDay({ day: this._day(1) }), { text: false });
-    next.disabled = !rec.day || rec.day >= (rec.today || "");
-    nav.append(
-      this._button("mdi:chevron-left", this._t("prev_day"),
-        () => rec.day && this._loadDay({ day: this._day(-1) }), { text: false }),
-      date,
-      next,
-      now,
-      ...(rec.at != null ? [this._button("mdi:record-circle-outline", this._t("live"), () => {
-        this._stop();
-        this._render();
-      }, { text: false })] : []),
-      this._button("mdi:rewind-60", this._t("back_1m"),
-        () => rec.cursor != null && this._playAt(rec.cursor - 60), { text: false }),
-      this._button("mdi:fast-forward-60", this._t("fwd_1m"),
-        () => rec.cursor != null && this._playAt(rec.cursor + 60), { text: false }),
-      this._button("mdi:magnify-minus-outline", this._t("zoom_out"),
-        () => this._setZoom(rec.zoom / 2), { text: false }),
-      this._button("mdi:magnify-plus-outline", this._t("zoom_in"),
-        () => this._setZoom(rec.zoom * 2), { text: false })
-    );
-    box.append(nav);
 
+    const timeline = document.createElement("div");
+    timeline.className = "timeline";
     const scroll = document.createElement("div");
     scroll.className = "scroll";
+    const padding = document.createElement("div");
+    padding.className = "pad";
     const track = document.createElement("div");
     track.className = "track";
-    track.style.width = `${rec.zoom * 100}%`;
-    for (let hour = 0; hour < 24; hour += 1) {
-      const tick = document.createElement("div");
-      tick.className = "hour";
-      tick.dataset.hour = hour;
-      tick.style.left = `${(hour / 24) * 100}%`;
-      tick.textContent = `${String(hour).padStart(2, "0")}:00`;
-      track.append(tick);
-    }
-    for (const [from, to] of rec.ranges || []) {
-      const block = document.createElement("div");
-      block.className = "block";
-      block.style.left = `${(from / 86400) * 100}%`;
-      block.style.width = `${((to - from) / 86400) * 100}%`;
-      track.append(block);
-    }
-    const line = document.createElement("div");
-    line.className = "cursor";
-    line.hidden = true;
-    track.append(line);
-    track.addEventListener("click", (ev) => {
-      const box = track.getBoundingClientRect();
-      this._playAt(((ev.clientX - box.left) / box.width) * 86400);
-    });
-    scroll.append(track);
-    box.append(scroll);
+    padding.append(track);
+    scroll.append(padding);
+    const needle = document.createElement("div");
+    needle.className = "needle";
+    timeline.append(scroll, needle);
 
-    this._moveCursor();
+    const transport = document.createElement("div");
+    transport.className = "transport";
+    const left = document.createElement("div");
+    left.className = "side";
+    const right = document.createElement("div");
+    right.className = "side end";
+    const jump = (step) => this._playAt(Math.max(0, this._shownSecond() + step));
+    const pause = this._button("mdi:pause", this._t("pause"), () => this._togglePause(),
+      { text: false, cls: "round main" });
+    const live = this._button("", this._t("live"), () => this._goLive(), { cls: "pill golive" });
+    right.append(live);
+    transport.append(
+      left,
+      this._button("mdi:rewind-60", this._t("back_1m"), () => jump(-60), { text: false, cls: "round" }),
+      pause,
+      this._button("mdi:fast-forward-60", this._t("fwd_1m"), () => jump(60), { text: false, cls: "round" }),
+      right);
+
+    box.append(frame, chips, nav, now, timeline, transport);
+    this._parts = { frame, now, scroll, track, span, pause, live };
+    this._ticksKey = null;
+    this._seeking = false;
+    this._wireScroll(scroll);
+    this._fillPlayer();
+    this._drawBlocks();
     // Widths are only real once the browser has laid the new nodes out.
     requestAnimationFrame(() => {
-      this._labelHours(track);
-      if (rec.cursor != null) {
-        scroll.scrollLeft = (rec.cursor / 86400) * track.offsetWidth - scroll.clientWidth / 2;
+      if (!this._parts || this._parts.scroll !== scroll) return;
+      this._sizeTrack();
+      this._follow();
+    });
+    if (!this._resize) {
+      this._resize = new ResizeObserver(() => {
+        if (!this._parts || this._seeking) return;
+        const second = this._shownSecond();
+        this._sizeTrack();
+        this._ticksKey = null;
+        this._scrollTo(second);
+        this._drawTicks();
+      });
+    }
+    this._resize.disconnect();
+    this._resize.observe(scroll);
+  }
+
+  // Dragging the strip under the needle picks the moment; letting go plays from there.
+  _wireScroll(scroll) {
+    let settle = null;
+    let held = false;
+    let drag = null;
+    const arm = () => {
+      clearTimeout(settle);
+      settle = setTimeout(() => {
+        if (held || drag) return;
+        if (!this._parts || this._parts.scroll !== scroll || !this._seeking) return;
+        const second = this._center();
+        this._seeking = false;
+        this._playAt(second);
+      }, 450);
+    };
+    scroll.addEventListener("scroll", () => {
+      if (performance.now() < (this._autoUntil || 0)) return;
+      this._seeking = true;
+      this._parts.now.textContent = clock(this._center());
+      this._parts.live.classList.remove("on");
+      this._drawTicks();
+      arm();
+    }, { passive: true });
+    scroll.addEventListener("touchstart", () => { held = true; }, { passive: true });
+    const lift = () => {
+      held = false;
+      if (this._seeking) arm();
+    };
+    scroll.addEventListener("touchend", lift, { passive: true });
+    scroll.addEventListener("touchcancel", lift, { passive: true });
+    // A finger scrolls the strip natively; a mouse needs the drag done by hand.
+    scroll.addEventListener("pointerdown", (ev) => {
+      if (ev.pointerType !== "mouse" || ev.button !== 0) return;
+      drag = { x: ev.clientX, left: scroll.scrollLeft, moved: false };
+      scroll.setPointerCapture(ev.pointerId);
+      scroll.classList.add("drag");
+    });
+    scroll.addEventListener("pointermove", (ev) => {
+      if (!drag) return;
+      const delta = ev.clientX - drag.x;
+      if (Math.abs(delta) > 3) drag.moved = true;
+      if (drag.moved) {
+        this._autoUntil = 0;
+        scroll.scrollLeft = drag.left - delta;
       }
     });
-    clearInterval(this._tick);
-    if (rec.url) this._tick = setInterval(() => this._moveCursor(), 1000);
+    const release = (ev) => {
+      if (!drag) return;
+      const moved = drag.moved;
+      drag = null;
+      scroll.classList.remove("drag");
+      this._autoUntil = 0;
+      if (moved) {
+        if (this._seeking) arm();
+        return;
+      }
+      // A plain click brings that point under the needle.
+      const box = scroll.getBoundingClientRect();
+      scroll.scrollLeft += ev.clientX - (box.left + box.width / 2);
+    };
+    scroll.addEventListener("pointerup", release);
+    scroll.addEventListener("pointercancel", release);
   }
 }
 

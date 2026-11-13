@@ -40,3 +40,14 @@
 - `media_source/resolve_media` answers a relative URL and `ha-hls-player` does
   `new URL(child, this.url)` on a master playlist: give it an absolute URL or it
   throws `Invalid base URL`.
+- From 0.7.0 the camera view is one channel with a timeline, like the DVR's app:
+  a fixed needle in the middle and a strip that scrolls under it (native scroll on
+  touch, hand-made drag for the mouse). The moment under the needle is
+  `scrollLeft / track width`; 450 ms after the scroll stops and the finger is up,
+  `_playAt` starts a stream there. Scrolls the card makes itself are told apart by
+  `_autoUntil`.
+- The strip's width must not depend on its content: `.timeline` has
+  `contain:inline-size` and the padding and track width are set in pixels. With a
+  percentage padding on a `max-content` box the card grew to 33 million pixels.
+- "Now" is Home Assistant's time zone (`hass.config.time_zone`), not the browser's.
+- The panel passes `default_view: "timeline"`; a dashboard card opens on the grid.

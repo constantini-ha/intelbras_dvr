@@ -39,10 +39,10 @@
 
 ## La página Cámaras y la tarjeta
 
-La integración añade **Cámaras** al menú lateral: todos los canales en vivo en
-mosaico, toca uno para ampliarlo, pantalla completa y las grabaciones a un
-toque. Los administradores también tienen ahí el formulario de credenciales y
-el botón **Añadir al panel**.
+La integración añade **Cámaras** al menú lateral. Se abre en una cámara, en
+vivo, con la línea de tiempo del día debajo; **Mosaico** muestra todos los
+canales a la vez y un toque en cualquiera abre esa cámara. Los administradores
+también tienen ahí el formulario de credenciales y el botón **Añadir al panel**.
 
 La misma vista es una tarjeta de panel. Elige **Cámaras del DVR Intelbras** en
 el selector de tarjetas, o escríbela a mano:
@@ -50,14 +50,17 @@ el selector de tarjetas, o escríbela a mano:
 ```yaml
 type: custom:intelbras-dvr-card
 columns: 2            # opcional
+default_view: grid    # opcional: grid (por defecto) o timeline
 title: Cámaras        # opcional
 entities:             # opcional, por defecto todos los canales del DVR
   - camera.dvr_canal_1
 ```
 
-Las grabaciones se abren como una línea de tiempo del día: elige el canal y la
-fecha, mira qué tramos están en disco y toca cualquier momento para ver desde
-ahí. Acerca la barra para más precisión y salta un minuto atrás o adelante.
+La línea de tiempo funciona como en la app del propio DVR: arrastra la regla
+bajo la aguja para retroceder o avanzar y suelta para ver desde ese momento. Los
+tramos grabados aparecen pintados en ella. Cambia la escala (10 min, 1 h, 6 h,
+24 h), pausa, salta un minuto, elige otro día y toca **En vivo** para volver al
+presente.
 
 No hace falta ninguna otra biblioteca de tarjetas. La página y la tarjeta
 hablan español, portugués e inglés, siguiendo a Home Assistant.

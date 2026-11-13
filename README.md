@@ -39,9 +39,10 @@
 
 ## The Cameras page and the card
 
-The integration adds a **Cameras** entry to the sidebar: every channel live in a
-grid, tap one to enlarge it, full screen, and the recordings a tap away. Admins
-also get the credentials form and an **Add to dashboard** button there.
+The integration adds a **Cameras** entry to the sidebar. It opens on one camera,
+live, with the day's timeline under it; **Grid** shows every channel at once and
+a tap on any of them opens that camera. Admins also get the credentials form and
+an **Add to dashboard** button there.
 
 The same view is a dashboard card. Pick **Intelbras DVR cameras** in the card
 picker, or write it by hand:
@@ -49,14 +50,16 @@ picker, or write it by hand:
 ```yaml
 type: custom:intelbras-dvr-card
 columns: 2            # optional
+default_view: grid    # optional: grid (default) or timeline
 title: Cameras        # optional
 entities:             # optional, default is every DVR channel
   - camera.dvr_canal_1
 ```
 
-Recordings open as a day timeline: pick the channel and the date, see which
-stretches are on disk, and tap any moment to watch from there. Zoom the bar
-for precision and jump a minute back or forward.
+The timeline works like the DVR's own app: drag the strip under the needle to go
+back or forward and let go to watch from that moment. The recorded stretches are
+painted on it. Change the scale (10 min, 1 h, 6 h, 24 h), pause, jump a minute,
+pick another day, and press **Live** to return to the present.
 
 No other card library is needed. The page and the card speak English,
 Portuguese and Spanish, following Home Assistant.
