@@ -85,8 +85,8 @@ class IntelbrasMediaSource(MediaSource):
         url = client.playback_rtsp_url(int(channel), start, end, rtsp_port)
         stream = create_stream(self.hass, url, {}, DynamicStreamSettings())
         stream.add_provider("hls", timeout=300)
-        stream_url = stream.endpoint_url("hls").replace("master_", "")
-        return PlayMedia(stream_url, HLS_MIME)
+        # The master playlist names the codec, which the players need to take H.265.
+        return PlayMedia(stream.endpoint_url("hls"), HLS_MIME)
 
     # ---------- navegação ----------
 

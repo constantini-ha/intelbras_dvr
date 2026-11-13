@@ -26,3 +26,14 @@
   there is no seeking inside one.
 - To test a card that is already installed, serve the development file under another
   element name, or `customElements.define` throws and the old class answers.
+- `ha-hls-player` takes `autoPlay` and `playsInline` (camel case); the lowercase
+  `autoplay` is ignored and the video stays black until someone presses play.
+  Hand it the **master** playlist: it names the codec, and without it the player
+  assumes H.264 and an H.265 recording never shows.
+- A recording is served as a live sliding window at 1x: `ended` never fires, so the
+  card moves to the next window by the clock.
+- The iPhone has no element fullscreen. The fallback puts the card in the top layer
+  (`popover="manual"` + `showPopover()`), with safe-area padding; a plain
+  `position:fixed` stayed under the app header and hid the way out.
+- To test an installed card against the working tree, block service workers and
+  `page.route('**/intelbras_dvr/frontend/**')` to the local files.

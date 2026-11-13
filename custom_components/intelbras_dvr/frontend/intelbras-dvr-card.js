@@ -8,7 +8,10 @@ const WINDOW = 1800;
 const STYLE = `
   :host { display:block }
   ha-card { overflow:hidden; display:flex; flex-direction:column }
-  :host(.full) { position:fixed; inset:0; z-index:9999 }
+  :host(.full) { position:fixed; inset:0; z-index:9999; width:100%; height:100%; max-width:none;
+    max-height:none; margin:0; border:0; overflow:hidden; box-sizing:border-box; background:#000;
+    padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
+      env(safe-area-inset-left) }
   :host(.full) ha-card, :host(:fullscreen) ha-card { height:100%; border-radius:0; border:0; background:#000 }
   .bar { display:flex; align-items:center; gap:4px; padding:6px 8px 6px 14px; min-height:44px }
   .bar .title { flex:1; min-width:0; font-size:16px; font-weight:500; white-space:nowrap;
@@ -43,6 +46,13 @@ const STYLE = `
   .player { background:#000; aspect-ratio:16/9; max-height:70vh }
   .player > * { display:block; width:100%; height:100% }
   .player { position:relative }
+  .player.live { aspect-ratio:auto; max-height:none; min-height:72px }
+  .player.live > .stream { height:auto }
+  .player.live > .stream > * { display:block; --ha-card-border-radius:0;
+    --ha-card-border-width:0; --ha-card-box-shadow:none; --ha-card-background:#000 }
+  .badge { position:absolute; left:8px; top:8px; width:auto; height:auto; padding:2px 8px;
+    border-radius:10px; background:rgba(0,0,0,.55); color:#fff; font-size:12px; pointer-events:none }
+  .tip { padding:8px 14px 0; font-size:13px; color:var(--secondary-text-color) }
   .hint { position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
     padding:16px; text-align:center; color:rgba(255,255,255,.78); font-size:14px }
   .chips, .nav { display:flex; align-items:center; gap:6px; padding:8px 12px 0; flex-wrap:wrap }
@@ -112,6 +122,7 @@ class IntelbrasDvrCard extends HTMLElement {
       return;
     }
     for (const card of this._streams) card.hass = hass;
+    if (this._recLive && this._recLive.card) this._recLive.card.hass = hass;
     if (this._player && "hass" in this._player) this._player.hass = hass;
     // A camera that shows up later (the DVR loaded after the page) joins the grid.
     if (this._view === "live" && this._cameras().join() !== this._shown) this._render();
@@ -120,10 +131,15 @@ class IntelbrasDvrCard extends HTMLElement {
   connectedCallback() {
     this._onFull = () => this._syncFullButton();
     document.addEventListener("fullscreenchange", this._onFull);
+    this._onKey = (ev) => {
+      if (ev.key === "Escape" && this.classList.contains("full")) this._toggleFull();
+    };
+    document.addEventListener("keydown", this._onKey);
   }
 
   disconnectedCallback() {
     document.removeEventListener("fullscreenchange", this._onFull);
+    document.removeEventListener("keydown", this._onKey);
     clearInterval(this._tick);
   }
 
@@ -170,14 +186,27 @@ class IntelbrasDvrCard extends HTMLElement {
   async _toggleFull() {
     if (this._isFull()) {
       if (document.fullscreenElement === this) await document.exitFullscreen();
-      this.classList.remove("full");
+      this._cover(false);
     } else if (this.requestFullscreen) {
-      // iOS has no element fullscreen, so the card covers the window instead.
-      await this.requestFullscreen().catch(() => this.classList.add("full"));
+      await this.requestFullscreen().catch(() => this._cover(true));
     } else {
-      this.classList.add("full");
+      this._cover(true);
     }
     this._syncFullButton();
+  }
+
+  // The iPhone has no element fullscreen: the card covers the window from the top layer,
+  // above the app header, so its own bar (and the way out) stays reachable.
+  _cover(on) {
+    if (this.hasAttribute("popover")) {
+      try { this.hidePopover(); } catch (_) { /* already closed */ }
+      this.removeAttribute("popover");
+    }
+    this.classList.toggle("full", on);
+    if (on && this.showPopover) {
+      this.setAttribute("popover", "manual");
+      try { this.showPopover(); } catch (_) { this.removeAttribute("popover"); }
+    }
   }
 
   _syncFullButton() {
@@ -246,7 +275,46 @@ class IntelbrasDvrCard extends HTMLElement {
       return;
     }
     this._stop();
+    this._recLive = null;
     this._render();
+  }
+
+  _liveCard(helpers, entityId) {
+    // Home Assistant's own picture card carries the live stream, HLS or WebRTC.
+    const live = helpers.createCardElement({
+      type: "picture-entity",
+      entity: entityId,
+      camera_view: "live",
+      show_name: false,
+      show_state: false,
+      tap_action: { action: "none" },
+      hold_action: { action: "none" },
+    });
+    live.hass = this._hass;
+    return live;
+  }
+
+  _channelCamera(channel) {
+    const registry = this._hass.entities || {};
+    const own = Object.keys(registry)
+      .filter((id) => id.startsWith("camera.") && registry[id].platform === PLATFORM &&
+        !registry[id].hidden)
+      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    return own.find((id) => new RegExp(`\\D${channel}$`).test(id)) || own[channel - 1] || null;
+  }
+
+  // Kept across renders, so loading a day does not restart the live picture.
+  _liveHolder(entityId) {
+    if (this._recLive && this._recLive.entity === entityId) return this._recLive.holder;
+    const holder = document.createElement("div");
+    holder.className = "stream";
+    const mine = { entity: entityId, holder, card: null };
+    this._recLive = mine;
+    window.loadCardHelpers().then((helpers) => {
+      mine.card = this._liveCard(helpers, entityId);
+      holder.append(mine.card);
+    });
+    return holder;
   }
 
   async _renderLive(card) {
@@ -274,17 +342,7 @@ class IntelbrasDvrCard extends HTMLElement {
       cell.dataset.entity = entityId;
       const stream = document.createElement("div");
       stream.className = "stream";
-      // Home Assistant's own picture card carries the live stream, HLS or WebRTC.
-      const live = helpers.createCardElement({
-        type: "picture-entity",
-        entity: entityId,
-        camera_view: "live",
-        show_name: false,
-        show_state: false,
-        tap_action: { action: "none" },
-        hold_action: { action: "none" },
-      });
-      live.hass = this._hass;
+      const live = this._liveCard(helpers, entityId);
       this._streams.push(live);
       stream.append(live);
       const tap = document.createElement("button");
@@ -382,6 +440,7 @@ class IntelbrasDvrCard extends HTMLElement {
     }
     const at = Math.max(0, Math.floor(inside ? second : next[0]));
     this._stop();
+    this._recLive = null;
     Object.assign(this._rec, { at, cursor: at });
     this._render();
     const stamp = (value) => {
@@ -423,7 +482,8 @@ class IntelbrasDvrCard extends HTMLElement {
     const video = this._video();
     if (video && this._rec.at != null) {
       this._rec.cursor = this._rec.at + (video.currentTime || 0);
-      if (video.ended && this._rec.at + WINDOW < 86400) {
+      const done = video.ended || (video.currentTime || 0) >= WINDOW - 2;
+      if (done && this._rec.at + WINDOW < 86400) {
         this._playAt(this._rec.at + WINDOW);
         return;
       }
@@ -435,7 +495,11 @@ class IntelbrasDvrCard extends HTMLElement {
       line.style.left = `${(this._rec.cursor / 86400) * 100}%`;
       line.hidden = false;
     }
-    if (now) now.textContent = this._rec.cursor != null ? this._clock(this._rec.cursor) : "--:--:--";
+    if (now) {
+      now.textContent = this._rec.at != null && this._rec.cursor != null
+        ? this._clock(this._rec.cursor)
+        : this._rec.live ? this._t("live") : "--:--:--";
+    }
   }
 
   _setZoom(zoom) {
@@ -468,7 +532,19 @@ class IntelbrasDvrCard extends HTMLElement {
 
     const frame = document.createElement("div");
     frame.className = "player";
-    if (rec.url) {
+    const status = rec.note || rec.error || (rec.ranges === null
+      ? this._t("loading")
+      : rec.ranges.length ? this._t("pick_time") : this._t("no_recordings_day"));
+    const camera = rec.at == null ? this._channelCamera(rec.channel) : null;
+    rec.live = !!camera;
+    if (camera) {
+      // Until a moment is picked, the channel shows what is happening now.
+      frame.classList.add("live");
+      const badge = document.createElement("div");
+      badge.className = "badge";
+      badge.textContent = this._t("live");
+      frame.append(this._liveHolder(camera), badge);
+    } else if (rec.url) {
       // Safari plays HLS by itself; everywhere else Home Assistant's player does.
       const own = customElements.get("ha-hls-player");
       const player = document.createElement(own ? "ha-hls-player" : "video");
@@ -479,6 +555,7 @@ class IntelbrasDvrCard extends HTMLElement {
         player.src = rec.url;
       }
       player.controls = true;
+      player.autoPlay = true;
       player.autoplay = true;
       player.muted = true;
       player.playsInline = true;
@@ -488,14 +565,17 @@ class IntelbrasDvrCard extends HTMLElement {
     } else {
       const hint = document.createElement("div");
       hint.className = "hint";
-      hint.textContent = rec.note || (rec.at != null
-        ? this._t("starting")
-        : rec.error || (rec.ranges === null
-          ? this._t("loading")
-          : rec.ranges.length ? this._t("pick_time") : this._t("no_recordings_day")));
+      hint.textContent = rec.at != null ? this._t("starting") : status;
       frame.append(hint);
     }
     box.append(frame);
+    if (camera) {
+      const tip = document.createElement("div");
+      tip.className = "tip";
+      tip.setAttribute("role", "status");
+      tip.textContent = status;
+      box.append(tip);
+    }
 
     const chips = document.createElement("div");
     chips.className = "chips";
@@ -525,6 +605,10 @@ class IntelbrasDvrCard extends HTMLElement {
       date,
       next,
       now,
+      ...(rec.at != null ? [this._button("mdi:record-circle-outline", this._t("live"), () => {
+        this._stop();
+        this._render();
+      }, { text: false })] : []),
       this._button("mdi:rewind-60", this._t("back_1m"),
         () => rec.cursor != null && this._playAt(rec.cursor - 60), { text: false }),
       this._button("mdi:fast-forward-60", this._t("fwd_1m"),
