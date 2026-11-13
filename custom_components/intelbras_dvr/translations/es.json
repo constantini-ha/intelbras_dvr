@@ -1,0 +1,48 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Intelbras DVR",
+        "description": "Introduce los datos del DVR. Las credenciales se validan con una captura.",
+        "data": {
+          "host": "IP",
+          "username": "Usuario",
+          "password": "Contraseña",
+          "channels": "Cantidad de canales",
+          "rtsp_port": "Puerto RTSP",
+          "track_by_mac": "Seguir la IP por la MAC",
+          "scan_interval": "Intervalo de verificación (s)",
+          "rtsp_subtype": "Subtipo RTSP (0=principal, 1=secundario)",
+          "http_port": "Puerto HTTP"
+        }
+      }
+    },
+    "error": {
+      "auth_failed": "Error de inicio de sesión (revisa IP/usuario/contraseña y que el DVR no esté bloqueado)."
+    },
+    "abort": {
+      "already_configured": "Este DVR ya está configurado."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Opciones del DVR",
+        "data": {
+          "channels": "Cantidad de canales",
+          "rtsp_port": "Puerto RTSP",
+          "track_by_mac": "Seguir la IP por la MAC",
+          "scan_interval": "Intervalo de verificación (s)",
+          "rtsp_subtype": "Subtipo RTSP (0=principal, 1=secundario)",
+          "http_port": "Puerto HTTP"
+        }
+      }
+    }
+  },
+  "services": {
+    "apply_credentials": {
+      "name": "Aplicar credenciales",
+      "description": "Actualiza host/usuario/contraseña del DVR y recarga."
+    }
+  }
+}

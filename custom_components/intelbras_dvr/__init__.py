@@ -22,6 +22,7 @@ from .const import (
 )
 from .coordinator import IntelbrasCoordinator
 from .dvr import IntelbrasClient
+from .frontend import async_setup_frontend
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -100,6 +101,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
     coordinator = IntelbrasCoordinator(hass, entry, client)
     await coordinator.async_config_entry_first_refresh()
+
+    await async_setup_frontend(hass)
 
     hass.data[DOMAIN].setdefault(entry.entry_id, {})
     hass.data[DOMAIN][entry.entry_id][DATA_COORDINATOR] = coordinator

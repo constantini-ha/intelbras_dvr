@@ -1,0 +1,127 @@
+/** Strings for the panel and the card, in the three languages the integration speaks. */
+const STRINGS = {
+  en: {
+    cameras: "Cameras",
+    live: "Live",
+    recordings: "Recordings",
+    back: "Back",
+    fullscreen: "Full screen",
+    exit_fullscreen: "Exit full screen",
+    channel: "Channel {n}",
+    no_cameras: "No DVR camera found. Add the Intelbras DVR integration first.",
+    loading: "Loading…",
+    empty_folder: "Nothing recorded here.",
+    browse_failed: "Could not list the recordings: {err}",
+    play_failed: "Could not play this recording: {err}",
+    add_to_dashboard: "Add to dashboard",
+    sent_to_dashboard: "Cameras added to the dashboard.",
+    dashboard_failed: "Could not add to the dashboard: {err}",
+    settings: "Settings",
+    credentials: "DVR credentials",
+    credentials_hint:
+      "Use this when the DVR changes its address or password. The login is checked before anything is saved.",
+    host: "DVR address (IP)",
+    username: "User",
+    password: "Password",
+    apply: "Apply",
+    applying: "Checking the DVR…",
+    applied: "Credentials applied.",
+    apply_failed: "Could not apply: {err}",
+    last_result: "Last result",
+    close: "Close",
+    card_name: "Intelbras DVR cameras",
+    card_desc: "Live grid of the DVR cameras, with full screen and recordings",
+    field_title: "Title",
+    field_columns: "Columns",
+    field_entities: "Cameras (empty = every DVR camera)",
+  },
+  "pt-BR": {
+    cameras: "Câmeras",
+    live: "Ao vivo",
+    recordings: "Gravações",
+    back: "Voltar",
+    fullscreen: "Tela cheia",
+    exit_fullscreen: "Sair da tela cheia",
+    channel: "Canal {n}",
+    no_cameras: "Nenhuma câmera do DVR encontrada. Adicione antes a integração Intelbras DVR.",
+    loading: "Carregando…",
+    empty_folder: "Nada gravado aqui.",
+    browse_failed: "Não consegui listar as gravações: {err}",
+    play_failed: "Não consegui reproduzir esta gravação: {err}",
+    add_to_dashboard: "Adicionar ao painel",
+    sent_to_dashboard: "Câmeras adicionadas ao painel.",
+    dashboard_failed: "Não consegui adicionar ao painel: {err}",
+    settings: "Configurações",
+    credentials: "Credenciais do DVR",
+    credentials_hint:
+      "Use quando o DVR mudar de endereço ou de senha. O login é conferido antes de salvar qualquer coisa.",
+    host: "Endereço do DVR (IP)",
+    username: "Usuário",
+    password: "Senha",
+    apply: "Aplicar",
+    applying: "Conferindo o DVR…",
+    applied: "Credenciais aplicadas.",
+    apply_failed: "Não consegui aplicar: {err}",
+    last_result: "Último resultado",
+    close: "Fechar",
+    card_name: "Câmeras do DVR Intelbras",
+    card_desc: "Mosaico ao vivo das câmeras do DVR, com tela cheia e gravações",
+    field_title: "Título",
+    field_columns: "Colunas",
+    field_entities: "Câmeras (vazio = todas as do DVR)",
+  },
+  es: {
+    cameras: "Cámaras",
+    live: "En vivo",
+    recordings: "Grabaciones",
+    back: "Volver",
+    fullscreen: "Pantalla completa",
+    exit_fullscreen: "Salir de pantalla completa",
+    channel: "Canal {n}",
+    no_cameras: "No se encontró ninguna cámara del DVR. Añade antes la integración Intelbras DVR.",
+    loading: "Cargando…",
+    empty_folder: "Nada grabado aquí.",
+    browse_failed: "No pude listar las grabaciones: {err}",
+    play_failed: "No pude reproducir esta grabación: {err}",
+    add_to_dashboard: "Añadir al panel",
+    sent_to_dashboard: "Cámaras añadidas al panel.",
+    dashboard_failed: "No pude añadir al panel: {err}",
+    settings: "Ajustes",
+    credentials: "Credenciales del DVR",
+    credentials_hint:
+      "Úsalo cuando el DVR cambie de dirección o de contraseña. El inicio de sesión se comprueba antes de guardar nada.",
+    host: "Dirección del DVR (IP)",
+    username: "Usuario",
+    password: "Contraseña",
+    apply: "Aplicar",
+    applying: "Comprobando el DVR…",
+    applied: "Credenciales aplicadas.",
+    apply_failed: "No pude aplicar: {err}",
+    last_result: "Último resultado",
+    close: "Cerrar",
+    card_name: "Cámaras del DVR Intelbras",
+    card_desc: "Mosaico en vivo de las cámaras del DVR, con pantalla completa y grabaciones",
+    field_title: "Título",
+    field_columns: "Columnas",
+    field_entities: "Cámaras (vacío = todas las del DVR)",
+  },
+};
+
+function tableFor(language) {
+  const lang = language || "en";
+  if (STRINGS[lang]) return STRINGS[lang];
+  const base = lang.split("-")[0];
+  if (base === "pt") return STRINGS["pt-BR"];
+  return STRINGS[base] || STRINGS.en;
+}
+
+export function t(hass, key, vars = {}) {
+  const table = tableFor(hass && hass.language);
+  const text = table[key] ?? STRINGS.en[key] ?? key;
+  return text.replace(/\{(\w+)\}/g, (_, name) => vars[name] ?? "");
+}
+
+// For the card picker, which lists cards before any hass object exists.
+export function tn(key, vars = {}) {
+  return t({ language: (navigator && navigator.language) || "en" }, key, vars);
+}

@@ -14,7 +14,8 @@ CONF_SCAN_INTERVAL = "scan_interval"
 DEFAULT_USERNAME = "admin"
 DEFAULT_CHANNELS = 4
 DEFAULT_RTSP_PORT = 554
-DEFAULT_RTSP_SUBTYPE = 0  # 0 = stream principal, 1 = substream
+# The substream is H.264, which every browser plays; the main one is often H.265.
+DEFAULT_RTSP_SUBTYPE = 1
 DEFAULT_HTTP_PORT = 80
 DEFAULT_SCAN_INTERVAL = 300  # segundos
 

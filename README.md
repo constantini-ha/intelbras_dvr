@@ -37,6 +37,26 @@
         └── itself      tracked by MAC, so a new IP is followed on its own
 ```
 
+## The Cameras page and the card
+
+The integration adds a **Cameras** entry to the sidebar: every channel live in a
+grid, tap one to enlarge it, full screen, and the recordings a tap away. Admins
+also get the credentials form and an **Add to dashboard** button there.
+
+The same view is a dashboard card. Pick **Intelbras DVR cameras** in the card
+picker, or write it by hand:
+
+```yaml
+type: custom:intelbras-dvr-card
+columns: 2            # optional
+title: Cameras        # optional
+entities:             # optional, default is every DVR channel
+  - camera.dvr_canal_1
+```
+
+No other card library is needed. The page and the card speak English,
+Portuguese and Spanish, following Home Assistant.
+
 ## Installation
 
 1. **HACS** (or Marketplace from 2026.11) → ⋮ → **Custom repositories**

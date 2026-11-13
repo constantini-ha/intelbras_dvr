@@ -37,6 +37,27 @@
         └── él mismo    rastreado por MAC, así sigue solo a su nueva IP
 ```
 
+## La página Cámaras y la tarjeta
+
+La integración añade **Cámaras** al menú lateral: todos los canales en vivo en
+mosaico, toca uno para ampliarlo, pantalla completa y las grabaciones a un
+toque. Los administradores también tienen ahí el formulario de credenciales y
+el botón **Añadir al panel**.
+
+La misma vista es una tarjeta de panel. Elige **Cámaras del DVR Intelbras** en
+el selector de tarjetas, o escríbela a mano:
+
+```yaml
+type: custom:intelbras-dvr-card
+columns: 2            # opcional
+title: Cámaras        # opcional
+entities:             # opcional, por defecto todos los canales del DVR
+  - camera.dvr_canal_1
+```
+
+No hace falta ninguna otra biblioteca de tarjetas. La página y la tarjeta
+hablan español, portugués e inglés, siguiendo a Home Assistant.
+
 ## Instalación
 
 1. **HACS** (o Marketplace desde 2026.11) → ⋮ → **Repositorios personalizados**
