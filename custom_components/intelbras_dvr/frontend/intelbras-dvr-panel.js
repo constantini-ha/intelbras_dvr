@@ -14,7 +14,8 @@ const STYLE = `
     overflow:hidden; text-overflow:ellipsis }
   .top button { all:unset; cursor:pointer; display:inline-flex; align-items:center; gap:6px;
     min-height:40px; padding:0 12px; border-radius:20px; font-size:14px; --mdc-icon-size:22px }
-  .top button:hover, .top button:focus-visible { background:rgba(255,255,255,.16) }
+  .top button:focus-visible { background:rgba(255,255,255,.16) }
+  @media (hover:hover) { .top button:hover { background:rgba(255,255,255,.16) } }
   .top button.icon { padding:0 9px }
   .top button .lbl { display:none }
   @media (min-width:720px) { .top button .lbl { display:inline } }

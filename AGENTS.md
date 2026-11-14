@@ -79,3 +79,6 @@
 - A touch screen keeps `:hover` on the last button tapped. A hover background must
   not apply to a button in its `.on` state, or it replaces the accent background
   under text coloured for the accent: the speed pill became unreadable at 2x.
+- All `:hover` rules of the card and the panel live under `@media (hover:hover)`:
+  on a phone the user read the stuck hover as "the button stays pressed until I
+  tap something else".

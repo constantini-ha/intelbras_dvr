@@ -30,15 +30,14 @@ const STYLE = `
   button { all:unset; box-sizing:border-box; cursor:pointer; display:inline-flex; align-items:center;
     justify-content:center; gap:6px; -webkit-tap-highlight-color:transparent; --mdc-icon-size:20px }
   button:focus-visible { outline:2px solid var(--primary-color); outline-offset:1px }
+  button:not([disabled]):active { opacity:.6 }
   button[disabled] { opacity:.35; cursor:default }
   .bar button { min-height:36px; padding:0 10px; border-radius:18px; font-size:13px;
     color:var(--secondary-text-color) }
-  .bar button:not(.on):hover { background:var(--secondary-background-color) }
   .bar button.on { color:var(--primary-color);
     background:color-mix(in srgb, var(--primary-color) 14%, transparent) }
   .bar button.icon { padding:0 8px }
   :host(.full) .bar button:not(.on), :host(:fullscreen) .bar button:not(.on) { color:#fff }
-  :host(.full) .bar button:hover, :host(:fullscreen) .bar button:hover { background:rgba(255,255,255,.16) }
   .grid { display:grid; gap:3px; background:#000; flex:1; min-height:0 }
   .cell { position:relative; background:#000; overflow:hidden; min-width:0; min-height:72px }
   .stream > * { display:block; --ha-card-border-radius:0; --ha-card-border-width:0;
@@ -69,7 +68,6 @@ const STYLE = `
   .chips::-webkit-scrollbar { display:none }
   .pill { flex:none; min-height:36px; padding:0 14px; border-radius:18px; font-size:13px;
     white-space:nowrap; border:1px solid var(--outline-color, var(--divider-color)) }
-  .pill:not([disabled]):not(.on):hover { background:var(--secondary-background-color) }
   .pill.on { border-color:transparent; background:var(--primary-color); color:var(--text-primary-color) }
   .nav { display:flex; align-items:center; gap:6px; padding:10px 12px 0 }
   .nav input { box-sizing:border-box; flex:1; min-width:0; max-width:190px; font:inherit; font-size:14px;
@@ -78,7 +76,6 @@ const STYLE = `
     color:var(--primary-text-color); color-scheme:light dark }
   .nav input:focus-visible { outline:2px solid var(--primary-color); outline-offset:1px }
   .round { flex:none; width:36px; height:36px; border-radius:50% }
-  .round:not([disabled]):hover { background:var(--secondary-background-color) }
   .nav .gap { flex:1 }
   .now { padding:10px 12px 2px; text-align:center; font-size:15px; font-weight:500;
     font-variant-numeric:tabular-nums; color:var(--secondary-text-color) }
@@ -110,6 +107,13 @@ const STYLE = `
   .golive::before { content:""; width:7px; height:7px; border-radius:50%; background:currentColor;
     opacity:.6 }
   .golive.on::before { background:#ff4d4d; opacity:1 }
+  /* Only where a pointer can hover: a touch screen keeps :hover on the last button tapped. */
+  @media (hover:hover) {
+    .bar button:not(.on):hover { background:var(--secondary-background-color) }
+    :host(.full) .bar button:hover, :host(:fullscreen) .bar button:hover { background:rgba(255,255,255,.16) }
+    .pill:not([disabled]):not(.on):hover { background:var(--secondary-background-color) }
+    .round:not([disabled]):hover { background:var(--secondary-background-color) }
+  }
 `;
 
 const pad = (n) => String(n).padStart(2, "0");
