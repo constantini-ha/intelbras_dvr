@@ -15,6 +15,7 @@ from homeassistant.loader import async_get_integration
 from homeassistant.util import dt as dt_util
 
 from .const import CONF_CHANNELS, DEFAULT_CHANNELS, DOMAIN
+from .playback import async_setup_playback
 
 CARD_FILE = "intelbras-dvr-card.js"
 PANEL_FILE = "intelbras-dvr-panel.js"
@@ -44,6 +45,7 @@ async def async_setup_frontend(hass: HomeAssistant) -> None:
     add_extra_js_url(hass, f"{base}/{CARD_FILE}")
 
     websocket_api.async_register_command(hass, websocket_recordings)
+    async_setup_playback(hass)
 
     language = (hass.config.language or "en").split("-")[0]
     await panel_custom.async_register_panel(

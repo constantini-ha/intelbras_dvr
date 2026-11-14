@@ -60,7 +60,11 @@ La línea de tiempo funciona como en la app del propio DVR: arrastra la regla
 bajo la aguja para retroceder o avanzar y suelta para ver desde ese momento. Los
 tramos grabados aparecen pintados en ella. Cambia la escala (10 min, 1 h, 6 h,
 24 h), pausa, salta un minuto, elige otro día y toca **En vivo** para volver al
-presente.
+presente. Una grabación puede ir a 2x, 4x u 8x.
+
+Home Assistant convierte las grabaciones a H.264 mientras las ves, por eso
+funcionan en cualquier navegador y en el iPhone. Eso usa el procesador de la
+máquina de Home Assistant mientras haya una grabación en reproducción.
 
 No hace falta ninguna otra biblioteca de tarjetas. La página y la tarjeta
 hablan español, portugués e inglés, siguiendo a Home Assistant.
@@ -121,8 +125,9 @@ Home Assistant. El sensor `last_apply_result` cuenta qué pasó: `OK:`, `FAIL:` 
   pausa los reintentos 5 minutos, en lugar de empeorar el bloqueo.
 - **Sesiones de reproducción.** Los equipos de entrada permiten una o dos a la
   vez. Si un vídeo no arranca, cierra los demás.
-- **HEVC.** Las grabaciones en H.265 funcionan en Safari, Chrome y Edge. El
-  soporte de Firefox es flojo — igual que en el directo.
+- **HEVC.** El stream principal en directo puede ser H.265, que Firefox
+  reproduce mal; el substream, usado por defecto, es H.264. Las grabaciones se
+  convierten, así que el códec del disco no importa.
 - **Ventana de navegación.** Los últimos 7 días, normalmente en bloques de 30 minutos.
 
 Para el panel, [advanced-camera-card](https://github.com/dermotduffy/advanced-camera-card)

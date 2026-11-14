@@ -1,10 +1,9 @@
-"""Media source: gravações do DVR via mediaFileFind + playback RTSP→HLS."""
+"""Media source: the DVR recordings, listed by mediaFileFind and played as HLS."""
 from __future__ import annotations
 
 import logging
 from datetime import datetime, time, timedelta
 
-from homeassistant.components.camera import DynamicStreamSettings
 from homeassistant.components.media_player import MediaClass, MediaType
 from homeassistant.components.media_source import (
     BrowseMediaSource,
@@ -13,22 +12,20 @@ from homeassistant.components.media_source import (
     PlayMedia,
     Unresolvable,
 )
-from homeassistant.components.stream import create_stream
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
 from .const import (
     CONF_CHANNELS,
-    CONF_RTSP_PORT,
     DEFAULT_CHANNELS,
-    DEFAULT_RTSP_PORT,
     DOMAIN,
     HLS_MIME,
     MEDIA_BROWSE_DAYS,
     MEDIA_SLICE_MINUTES,
 )
 from .dvr import IntelbrasClient, RecordingsError
+from .playback import PlaybackError, async_open_session
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -81,12 +78,11 @@ class IntelbrasMediaSource(MediaSource):
             end = datetime.strptime(end_s, _COMPACT_FMT)
         except ValueError as ex:
             raise Unresolvable(f"Intervalo inválido: {item.identifier}") from ex
-        rtsp_port = self._opt(entry, CONF_RTSP_PORT, DEFAULT_RTSP_PORT)
-        url = client.playback_rtsp_url(int(channel), start, end, rtsp_port)
-        stream = create_stream(self.hass, url, {}, DynamicStreamSettings())
-        stream.add_provider("hls", timeout=300)
-        # The master playlist names the codec, which the players need to take H.265.
-        return PlayMedia(stream.endpoint_url("hls"), HLS_MIME)
+        try:
+            session = await async_open_session(self.hass, client, int(channel), start, end)
+        except PlaybackError as ex:
+            raise Unresolvable(str(ex)) from ex
+        return PlayMedia(session.url, HLS_MIME)
 
     # ---------- navegação ----------
 

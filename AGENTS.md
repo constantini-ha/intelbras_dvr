@@ -51,3 +51,28 @@
   percentage padding on a `max-content` box the card grew to 33 million pixels.
 - "Now" is Home Assistant's time zone (`hass.config.time_zone`), not the browser's.
 - The panel passes `default_view: "timeline"`; a dashboard card opens on the grid.
+- From 0.8.0 recordings no longer go through Home Assistant's `stream` (RTSP
+  playback at 1x, H.265 untouched, which the iPhone refused with "Error with media
+  stream contents"). `playback.py` downloads the stretch from
+  `/cgi-bin/loadfile.cgi?action=startLoad` (about 25x real time, DAV container),
+  pipes it into ffmpeg (`-f dhav`, libx264 ultrafast, 960x540, 2 s segments) and
+  serves an HLS event playlist under `/api/intelbras_dvr/playback/<token>/`. An
+  N100 converts about 10x real time, which is what makes 8x possible. The older
+  notes above about the master playlist, the sliding window and "no seeking" only
+  describe the past.
+- The conversion waits while it is `LEAD_SEGMENTS` ahead of the last segment the
+  player asked for, so a paused or slow player costs no processor.
+- The playlist is served with `#EXT-X-START:TIME-OFFSET=0`; without it players open
+  an unfinished playlist at its newest end.
+- hls.js (inside `ha-hls-player`) treats the unfinished playlist as live and sets
+  `playbackRate` back to 1 on every `timeupdate`; the card puts it back on
+  `ratechange` and sets `maxLiveSyncPlaybackRate = 1` on the instance.
+- Chromium says it plays HLS natively but its native player broke on speed changes
+  and on a second load: the plain `<video>` is only for Apple browsers
+  (`navigator.vendor`), with one retry through `ha-hls-player`.
+- The converted video is H.264, so headless Chromium shows recordings now. The
+  server half can run outside Home Assistant with stubbed `homeassistant` modules
+  and the card pointed at it by `page.route`; that is how 0.8.0 was tested before
+  it was installed.
+- The DVR joins recorded stretches in one download, so video time skips the gaps
+  the clock has: `_clockOf` and `_offsetOf` translate between the two.

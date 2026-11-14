@@ -59,7 +59,12 @@ entities:             # optional, default is every DVR channel
 The timeline works like the DVR's own app: drag the strip under the needle to go
 back or forward and let go to watch from that moment. The recorded stretches are
 painted on it. Change the scale (10 min, 1 h, 6 h, 24 h), pause, jump a minute,
-pick another day, and press **Live** to return to the present.
+pick another day, and press **Live** to return to the present. A recording can
+run at 2x, 4x or 8x.
+
+Recordings are converted to H.264 by Home Assistant while you watch, so they
+play in every browser and on the iPhone. That uses the processor of the machine
+running Home Assistant for as long as a recording is playing.
 
 No other card library is needed. The page and the card speak English,
 Portuguese and Spanish, following Home Assistant.
@@ -119,8 +124,9 @@ The `last_apply_result` sensor reports what happened: `OK:`, `FAIL:` or `AUTO:`.
   5 minutes rather than making the ban worse.
 - **Playback sessions.** Entry-level units allow one or two at a time. If a video
   will not start, close the others.
-- **HEVC.** H.265 recordings play on Safari, Chrome and Edge. Firefox's support
-  is weak — same as for live view.
+- **HEVC.** The live main stream may be H.265, which Firefox plays poorly; the
+  substream, used by default, is H.264. Recordings are converted, so the codec
+  on disk does not matter.
 - **Browse window.** The last 7 days, usually in 30-minute blocks.
 
 For a dashboard, [advanced-camera-card](https://github.com/dermotduffy/advanced-camera-card)

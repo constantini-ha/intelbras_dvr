@@ -1,9 +1,11 @@
 import { t, tn } from "./i18n.js";
 
 const PLATFORM = "intelbras_dvr";
-const ROOT = "media-source://intelbras_dvr";
 // How much video one request to the DVR covers, in seconds.
 const WINDOW = 1800;
+const RATES = [1, 2, 4, 8];
+// A paused recording is dropped by the server after a while; past this it is asked for again.
+const PAUSE_LIMIT = 240000;
 const DAY = 86400;
 // How much of the day fits across the timeline, and the gap between its labels.
 const SPANS = [
@@ -139,7 +141,7 @@ class IntelbrasDvrCard extends HTMLElement {
     this.attachShadow({ mode: "open" });
     this._view = null;
     this._streams = [];
-    this._rec = { channel: 1, day: null, ranges: null, span: 3600, at: null, cursor: null };
+    this._rec = { channel: 1, day: null, ranges: null, span: 3600, at: null, cursor: null, rate: 1 };
   }
 
   setConfig(config) {
@@ -463,9 +465,15 @@ class IntelbrasDvrCard extends HTMLElement {
     this._render();
   }
 
+  _drop(token) {
+    if (token) this._hass.callWS({ type: "intelbras_dvr/playback/stop", token }).catch(() => {});
+  }
+
   _stop() {
     this._player = null;
-    Object.assign(this._rec, { at: null, url: null, note: null, paused: false });
+    this._ask = (this._ask || 0) + 1;
+    this._drop(this._rec.token);
+    Object.assign(this._rec, { at: null, url: null, token: null, note: null, paused: false });
   }
 
   _goLive() {
@@ -479,9 +487,37 @@ class IntelbrasDvrCard extends HTMLElement {
     this._follow();
   }
 
-  // The DVR plays from an instant, so moving on the timeline starts a new stream there.
+  // The DVR joins the recorded stretches, so the video skips the gaps the clock has.
+  _clockOf(offset) {
+    const at = this._rec.at;
+    let left = offset;
+    let last = at;
+    for (const [from, to] of this._rec.ranges || []) {
+      if (to <= at) continue;
+      const begin = Math.max(from, at);
+      if (left < to - begin) return begin + left;
+      left -= to - begin;
+      last = to;
+    }
+    return last + left;
+  }
+
+  _offsetOf(second) {
+    const at = this._rec.at;
+    let total = 0;
+    for (const [from, to] of this._rec.ranges || []) {
+      if (to <= at) continue;
+      const begin = Math.max(from, at);
+      if (second < begin) break;
+      total += Math.min(second, to) - begin;
+      if (second < to) break;
+    }
+    return total;
+  }
+
   async _playAt(second) {
-    const ranges = this._rec.ranges || [];
+    const rec = this._rec;
+    const ranges = rec.ranges || [];
     const today = this._isToday();
     if (today && second >= this._nowSecond() - 5) {
       this._goLive();
@@ -495,34 +531,49 @@ class IntelbrasDvrCard extends HTMLElement {
         return;
       }
       this._stop();
-      this._rec.note = this._t("no_recording_there");
-      this._rec.cursor = second;
+      rec.note = this._t("no_recording_there");
+      rec.cursor = second;
       this._fillPlayer();
       return;
     }
     const at = Math.max(0, Math.floor(inside ? second : next[0]));
+    // A moment the player already holds is only a jump inside the same video.
+    const video = this._video();
+    if (video && rec.url && rec.at != null && at >= rec.at && video.seekable.length) {
+      const offset = this._offsetOf(at);
+      if (offset <= video.seekable.end(video.seekable.length - 1) - 2) {
+        video.currentTime = offset;
+        rec.cursor = at;
+        if (!rec.paused) video.play().catch(() => {});
+        this._follow();
+        return;
+      }
+    }
     this._stop();
     this._recLive = null;
-    Object.assign(this._rec, { at, cursor: at });
+    Object.assign(rec, { at, cursor: at });
     this._fillPlayer();
     this._follow();
-    const stamp = (value) => {
-      const s = Math.min(value, DAY - 1);
-      return this._rec.day.replaceAll("-", "") +
-        pad(Math.floor(s / 3600)) + pad(Math.floor((s % 3600) / 60)) + pad(s % 60);
-    };
+    const ask = this._ask;
     try {
       const media = await this._hass.callWS({
-        type: "media_source/resolve_media",
-        media_content_id:
-          `${ROOT}/PLAY|${this._rec.entry}|${this._rec.channel}|${stamp(at)}|${stamp(at + WINDOW)}`,
+        type: "intelbras_dvr/playback/start",
+        channel: rec.channel,
+        day: rec.day,
+        second: Math.min(at, DAY - 1),
+        length: WINDOW,
+        ...(rec.entry ? { entry_id: rec.entry } : {}),
       });
-      if (this._rec.at !== at) return;
-      // The player resolves the master playlist against this address, so it must be absolute.
-      this._rec.url = new URL(media.url, this._hass.hassUrl ? this._hass.hassUrl() : location.origin).href;
+      if (this._ask !== ask) {
+        this._drop(media.token);
+        return;
+      }
+      rec.token = media.token;
+      rec.url = new URL(media.url, this._hass.hassUrl ? this._hass.hassUrl() : location.origin).href;
     } catch (err) {
+      if (this._ask !== ask) return;
       this._stop();
-      this._rec.note = this._t("play_failed", { err: err.message || String(err) });
+      rec.note = this._t("play_failed", { err: err.message || String(err) });
     }
     if (this._view === "rec") this._fillPlayer();
   }
@@ -538,15 +589,43 @@ class IntelbrasDvrCard extends HTMLElement {
   _togglePause() {
     const rec = this._rec;
     if (rec.at == null) return;
-    if (rec.paused) {
-      // The stream kept running while paused, so resuming asks for that moment again.
-      this._playAt(rec.cursor);
-      return;
-    }
-    rec.paused = true;
     const video = this._video();
-    if (video) video.pause();
+    if (rec.paused) {
+      if (!video || Date.now() - this._pausedAt > PAUSE_LIMIT) {
+        this._playAt(rec.cursor);
+        return;
+      }
+      rec.paused = false;
+      video.play().catch(() => {});
+    } else {
+      rec.paused = true;
+      this._pausedAt = Date.now();
+      if (video) video.pause();
+    }
     this._syncControls(rec.cursor);
+  }
+
+  _setRate(rate) {
+    this._rec.rate = rate;
+    const video = this._video();
+    if (video && this._rec.at != null) this._holdRate(video);
+    this._syncControls();
+  }
+
+  // Home Assistant's player takes an unfinished playlist for a live one and pulls the speed back to 1.
+  _holdRate(video) {
+    const keep = () => {
+      if (this._video() === video && video.playbackRate !== this._rec.rate) {
+        video.playbackRate = this._rec.rate;
+      }
+    };
+    if (!video.dataset.held) {
+      video.dataset.held = "1";
+      video.addEventListener("ratechange", keep);
+      const hls = this._player && this._player._hlsPolyfillInstance;
+      if (hls && hls.config) hls.config.maxLiveSyncPlaybackRate = 1;
+    }
+    keep();
   }
 
   _isLive() {
@@ -562,20 +641,18 @@ class IntelbrasDvrCard extends HTMLElement {
     const rec = this._rec;
     if (this._view !== "rec" || !this._parts) return;
     const video = this._video();
-    if (video && !video.dataset.fit && video.videoWidth) {
-      video.dataset.fit = "1";
-      // The DVR records 1080N: half the columns of a 16:9 picture, to be shown stretched.
-      if (video.videoWidth < video.videoHeight) {
-        Object.assign(video.style, { width: "100%", height: "100%", maxHeight: "none", objectFit: "fill" });
-      }
-    }
     if (this._isToday() && Date.now() - (this._refreshed || 0) > 120000) this._refreshRanges();
+    if (video && rec.at != null) this._holdRate(video);
     if (this._seeking || rec.paused) return;
     if (video && rec.at != null) {
-      rec.cursor = rec.at + (video.currentTime || 0);
-      const done = video.ended || (video.currentTime || 0) >= WINDOW - 2;
-      if (done && rec.at + WINDOW < DAY) {
-        this._playAt(rec.at + WINDOW);
+      rec.cursor = this._clockOf(video.currentTime || 0);
+      if (video.ended) {
+        if (this._ending === video) return;
+        this._ending = video;
+        const end = Number.isFinite(video.duration) ? this._clockOf(video.duration) : rec.at + WINDOW;
+        const next = Math.max(rec.at + 1, Math.ceil(end));
+        // Today has grown while this stretch played, so the recorded ranges are read again first.
+        if (next < DAY) (this._isToday() ? this._refreshRanges() : Promise.resolve()).then(() => this._playAt(next));
         return;
       }
     }
@@ -636,6 +713,9 @@ class IntelbrasDvrCard extends HTMLElement {
     parts.pause.querySelector("ha-icon").setAttribute("icon", rec.paused ? "mdi:play" : "mdi:pause");
     parts.pause.title = this._t(rec.paused ? "play" : "pause");
     parts.pause.setAttribute("aria-label", parts.pause.title);
+    parts.rate.disabled = rec.at == null;
+    parts.rate.classList.toggle("on", rec.at != null && rec.rate !== 1);
+    parts.rate.querySelector("span").textContent = `${rec.at == null ? 1 : rec.rate}x`;
   }
 
   _setSpan(seconds) {
@@ -706,22 +786,42 @@ class IntelbrasDvrCard extends HTMLElement {
       frame.append(this._liveHolder(camera), badge);
     } else if (rec.url) {
       this._recLive = null;
-      // Safari plays HLS by itself; everywhere else Home Assistant's player does.
-      const own = customElements.get("ha-hls-player");
+      // Safari plays HLS by itself; elsewhere Home Assistant's player is the steady one.
+      const apple = (navigator.vendor || "").startsWith("Apple") &&
+        document.createElement("video").canPlayType("application/vnd.apple.mpegurl");
+      const own = (!apple || rec.plain === false) && customElements.get("ha-hls-player");
       const player = document.createElement(own ? "ha-hls-player" : "video");
       player.className = "video";
+      player.controls = false;
+      player.muted = true;
       if (own) {
         player.hass = this._hass;
+        player.autoPlay = true;
+        player.playsInline = true;
         player.url = rec.url;
       } else {
+        player.autoplay = true;
+        player.playsInline = true;
+        player.setAttribute("playsinline", "");
+        player.addEventListener("loadedmetadata", () => {
+          player.playbackRate = rec.rate;
+          if (!rec.paused) player.play().catch(() => {});
+        });
+        player.addEventListener("error", () => {
+          if (this._player !== player) return;
+          // One more try with Home Assistant's player before giving up.
+          if (rec.plain !== false && customElements.get("ha-hls-player")) {
+            rec.plain = false;
+            this._fillPlayer();
+            return;
+          }
+          const code = player.error ? player.error.code : "?";
+          this._stop();
+          rec.note = this._t("play_failed", { err: `video error ${code}` });
+          this._fillPlayer();
+        });
         player.src = rec.url;
       }
-      player.controls = false;
-      player.autoPlay = true;
-      player.autoplay = true;
-      player.muted = true;
-      player.playsInline = true;
-      player.playsinline = true;
       this._player = player;
       frame.append(player);
     } else {
@@ -807,6 +907,13 @@ class IntelbrasDvrCard extends HTMLElement {
       { text: false, cls: "round main" });
     const live = this._button("", this._t("live"), () => this._goLive(), { cls: "pill golive" });
     right.append(live);
+    const rate = this._button("mdi:play-speed", "1x", () => {
+      const index = RATES.indexOf(this._rec.rate);
+      this._setRate(RATES[(index + 1) % RATES.length]);
+    }, { cls: "pill" });
+    rate.title = this._t("speed");
+    rate.setAttribute("aria-label", rate.title);
+    left.append(rate);
     transport.append(
       left,
       this._button("mdi:rewind-60", this._t("back_1m"), () => jump(-60), { text: false, cls: "round" }),
@@ -815,7 +922,7 @@ class IntelbrasDvrCard extends HTMLElement {
       right);
 
     box.append(frame, chips, nav, now, timeline, transport);
-    this._parts = { frame, now, scroll, track, span, pause, live };
+    this._parts = { frame, now, scroll, track, span, pause, live, rate };
     this._ticksKey = null;
     this._seeking = false;
     this._wireScroll(scroll);
