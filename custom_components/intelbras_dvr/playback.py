@@ -86,6 +86,7 @@ class Playback:
         self._task: asyncio.Task | None = None
         self._checked = 0.0
         self._made = 0
+        self._closed = False
 
     @property
     def url(self) -> str:
@@ -178,7 +179,7 @@ class Playback:
                 await asyncio.wait_for(proc.wait(), 30)
             except (asyncio.TimeoutError, asyncio.CancelledError):
                 tail = b""
-            if proc.returncode not in (0, None) and not self.error:
+            if proc.returncode not in (0, None) and not self.error and not self._closed:
                 self.error = tail.decode(errors="replace").strip()[-300:] or (
                     f"ffmpeg exited with {proc.returncode}"
                 )
@@ -186,6 +187,7 @@ class Playback:
                 _LOGGER.warning("Recording playback failed: %s", self.error)
 
     async def async_close(self) -> None:
+        self._closed = True
         if self._task and not self._task.done():
             self._task.cancel()
         if self._proc and self._proc.returncode is None:
