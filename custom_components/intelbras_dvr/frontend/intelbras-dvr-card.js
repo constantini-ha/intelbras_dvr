@@ -33,7 +33,7 @@ const STYLE = `
   button[disabled] { opacity:.35; cursor:default }
   .bar button { min-height:36px; padding:0 10px; border-radius:18px; font-size:13px;
     color:var(--secondary-text-color) }
-  .bar button:hover { background:var(--secondary-background-color) }
+  .bar button:not(.on):hover { background:var(--secondary-background-color) }
   .bar button.on { color:var(--primary-color);
     background:color-mix(in srgb, var(--primary-color) 14%, transparent) }
   .bar button.icon { padding:0 8px }
@@ -69,7 +69,7 @@ const STYLE = `
   .chips::-webkit-scrollbar { display:none }
   .pill { flex:none; min-height:36px; padding:0 14px; border-radius:18px; font-size:13px;
     white-space:nowrap; border:1px solid var(--outline-color, var(--divider-color)) }
-  .pill:not([disabled]):hover { background:var(--secondary-background-color) }
+  .pill:not([disabled]):not(.on):hover { background:var(--secondary-background-color) }
   .pill.on { border-color:transparent; background:var(--primary-color); color:var(--text-primary-color) }
   .nav { display:flex; align-items:center; gap:6px; padding:10px 12px 0 }
   .nav input { box-sizing:border-box; flex:1; min-width:0; max-width:190px; font:inherit; font-size:14px;

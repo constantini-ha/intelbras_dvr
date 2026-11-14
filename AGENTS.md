@@ -76,3 +76,6 @@
   it was installed.
 - The DVR joins recorded stretches in one download, so video time skips the gaps
   the clock has: `_clockOf` and `_offsetOf` translate between the two.
+- A touch screen keeps `:hover` on the last button tapped. A hover background must
+  not apply to a button in its `.on` state, or it replaces the accent background
+  under text coloured for the accent: the speed pill became unreadable at 2x.
