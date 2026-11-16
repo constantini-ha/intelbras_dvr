@@ -108,6 +108,8 @@ class Playback:
             "-hide_banner", "-loglevel", "error", "-nostdin",
             "-f", "dhav", "-i", "pipe:0",
             "-an", "-vf", _scale(self.width),
+            # A grid is several conversions at once: one core each, so they do not pile up.
+            *(("-threads", "1") if self.width < 960 else ()),
             "-c:v", "libx264", "-preset", "ultrafast", "-crf", "26",
             "-pix_fmt", "yuv420p", "-sc_threshold", "0",
             "-force_key_frames", f"expr:gte(t,n_forced*{SEGMENT_SECONDS})",

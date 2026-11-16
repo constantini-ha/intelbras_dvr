@@ -82,3 +82,14 @@
 - All `:hover` rules of the card and the panel live under `@media (hover:hover)`:
   on a phone the user read the stuck hover as "the button stays pressed until I
   tap something else".
+
+- From 0.9.0 the grid has a history button (`_all`): the timeline opens under the grid and
+  every channel plays the same moment. `_rec` stays the first channel and drives the clock;
+  the rest live in `_others` and are pulled to it by `_syncOthers` (3 s of slack, each read
+  against its own recorded stretches). Grid sessions ask for `width: 640` and run ffmpeg on
+  one thread; four at 960 on all cores took the N100 to a load of 13. Top speed there is 4x.
+- Pictures are sized against the window height (`--chrome` is what the bars and the
+  timeline take, `--ratio` is columns over rows), so the card fits one screen on a desktop.
+  The live substream is 3:2, hence the 1.5.
+- A feature that needs a new server parameter cannot be tried with `page.route` alone:
+  publish a pre-release (`0.9.0rcN`), install it, test, then publish the real one.
