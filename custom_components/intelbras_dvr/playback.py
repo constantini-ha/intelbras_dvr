@@ -39,13 +39,18 @@ SEGMENT_SECONDS = 2
 # Segments kept ready ahead of the player; beyond that the conversion waits.
 LEAD_SEGMENTS = 30
 IDLE_SECONDS = 300
-MAX_SESSIONS = 3
+# A grid of four cameras on two screens at once.
+MAX_SESSIONS = 8
 START_TIMEOUT = 25
 MAX_WINDOW = 3600
 _LOAD_FMT = "%Y-%m-%d %H:%M:%S"
 _FILE_RE = re.compile(r"^(index\.m3u8|s(\d{5})\.ts)$")
 # 1080N recordings are half as wide as they should be, so those go out as 960x540.
-_SCALE = "scale=960:'if(gt(ih,iw),540,trunc(ih*960/iw/2)*2)'"
+WIDTHS = (640, 960)
+
+
+def _scale(width: int) -> str:
+    return f"scale={width}:'if(gt(ih,iw),{width * 9 // 16},trunc(ih*{width}/iw/2)*2)'"
 
 
 class PlaybackError(Exception):
@@ -71,7 +76,9 @@ class Playback:
         channel: int,
         start: datetime,
         end: datetime,
+        width: int = 960,
     ) -> None:
+        self.width = width
         self.hass = hass
         self.client = client
         self.channel = channel
@@ -100,7 +107,7 @@ class Playback:
             _ffmpeg(self.hass),
             "-hide_banner", "-loglevel", "error", "-nostdin",
             "-f", "dhav", "-i", "pipe:0",
-            "-an", "-vf", _SCALE,
+            "-an", "-vf", _scale(self.width),
             "-c:v", "libx264", "-preset", "ultrafast", "-crf", "26",
             "-pix_fmt", "yuv420p", "-sc_threshold", "0",
             "-force_key_frames", f"expr:gte(t,n_forced*{SEGMENT_SECONDS})",
@@ -215,6 +222,7 @@ async def async_open_session(
     channel: int,
     start: datetime,
     end: datetime,
+    width: int = 960,
 ) -> Playback:
     """Start converting one stretch; `start` and `end` are the DVR's local time."""
     now = dt_util.now().replace(tzinfo=None)
@@ -225,7 +233,7 @@ async def async_open_session(
     while len(sessions) >= MAX_SESSIONS:
         oldest = min(sessions.values(), key=lambda item: item.seen)
         await async_close_session(hass, oldest.token)
-    session = Playback(hass, client, channel, start, end)
+    session = Playback(hass, client, channel, start, end, width)
     await session.async_start()
     sessions[session.token] = session
     return session
@@ -287,6 +295,7 @@ def _entry_client(hass: HomeAssistant, entry_id: str | None):
         vol.Required("day"): str,
         vol.Required("second"): vol.All(int, vol.Range(min=0, max=86399)),
         vol.Optional("length", default=1800): vol.All(int, vol.Range(min=10, max=MAX_WINDOW)),
+        vol.Optional("width", default=960): vol.In(WIDTHS),
         vol.Optional("entry_id"): str,
         vol.Optional("replaces"): str,
     }
@@ -307,7 +316,8 @@ async def websocket_start(hass, connection, msg):
     start = day + timedelta(seconds=msg["second"])
     try:
         session = await async_open_session(
-            hass, client, msg["channel"], start, start + timedelta(seconds=msg["length"])
+            hass, client, msg["channel"], start, start + timedelta(seconds=msg["length"]),
+            msg["width"],
         )
     except PlaybackError as err:
         connection.send_error(msg["id"], "playback_failed", str(err))

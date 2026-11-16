@@ -4,6 +4,9 @@ const PLATFORM = "intelbras_dvr";
 // How much video one request to the DVR covers, in seconds.
 const WINDOW = 1800;
 const RATES = [1, 2, 4, 8];
+// Every camera at once is several conversions side by side, so the top speed is lower.
+const RATES_ALL = [1, 2, 4];
+const SMALL_WIDTH = 640;
 // A paused recording is dropped by the server after a while; past this it is asked for again.
 const PAUSE_LIMIT = 240000;
 const DAY = 86400;
@@ -38,7 +41,11 @@ const STYLE = `
     background:color-mix(in srgb, var(--primary-color) 14%, transparent) }
   .bar button.icon { padding:0 8px }
   :host(.full) .bar button:not(.on), :host(:fullscreen) .bar button:not(.on) { color:#fff }
-  .grid { display:grid; gap:3px; background:#000; flex:1; min-height:0 }
+  /* The pictures never get taller than the window: on a wide screen they stop growing. */
+  .wrap { background:#000; flex:1; min-height:0; display:flex; flex-direction:column;
+    justify-content:center }
+  .grid { display:grid; gap:3px; background:#000; box-sizing:border-box; margin:0 auto;
+    width:min(100%, calc(max(200px, 100vh - var(--chrome, 150px)) * 1.5 * var(--ratio, 1))) }
   .cell { position:relative; background:#000; overflow:hidden; min-width:0; min-height:72px }
   .stream > * { display:block; --ha-card-border-radius:0; --ha-card-border-width:0;
     --ha-card-box-shadow:none; --ha-card-background:#000 }
@@ -51,13 +58,24 @@ const STYLE = `
 
   .rec { display:flex; flex-direction:column; min-height:0; flex:1;
     background:var(--card-background-color); color:var(--primary-text-color) }
-  .player { position:relative; background:#000; aspect-ratio:16/9; max-height:62vh; overflow:hidden }
+  .player { position:relative; background:#000; aspect-ratio:16/9; overflow:hidden;
+    max-height:max(200px, calc(100vh - 470px)) }
   .player > .video { display:block; width:100%; height:100% }
   .player.live { aspect-ratio:auto; max-height:none; min-height:72px }
+  .player.live > .stream { margin:0 auto;
+    width:min(100%, calc(max(200px, 100vh - 470px) * 1.5)) }
+  .player.cellp { max-height:none; min-width:0 }
+  .player.cellp.live > .stream { width:100% }
+  .player .name { position:absolute; right:8px; bottom:8px; padding:2px 8px; border-radius:10px;
+    background:rgba(0,0,0,.55); color:#fff; font-size:12px; pointer-events:none }
   :host(.full) .player, :host(:fullscreen) .player { flex:1; min-height:0; max-height:none;
     aspect-ratio:auto; display:flex; align-items:center; justify-content:center }
   :host(.full) .player.live > .stream, :host(:fullscreen) .player.live > .stream {
     width:min(100%, calc((100vh - 330px) * 1.5)) }
+  :host(.full) .player.cellp, :host(:fullscreen) .player.cellp { flex:none; display:block;
+    aspect-ratio:16/9 }
+  :host(.full) .player.cellp.live, :host(:fullscreen) .player.cellp.live { aspect-ratio:auto }
+  :host(.full) .player.cellp.live > .stream, :host(:fullscreen) .player.cellp.live > .stream { width:100% }
   .hint { position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
     padding:16px; text-align:center; color:rgba(255,255,255,.78); font-size:14px }
   .badge { position:absolute; left:8px; top:8px; display:flex; align-items:center; gap:6px;
@@ -146,6 +164,10 @@ class IntelbrasDvrCard extends HTMLElement {
     this._view = null;
     this._streams = [];
     this._rec = { channel: 1, day: null, ranges: null, span: 3600, at: null, cursor: null, rate: 1 };
+    // The grid with its timeline open: the other channels follow the one in `_rec`.
+    this._all = false;
+    this._others = [];
+    this._otherLive = {};
   }
 
   setConfig(config) {
@@ -164,6 +186,8 @@ class IntelbrasDvrCard extends HTMLElement {
     for (const card of this._streams) card.hass = hass;
     if (this._recLive && this._recLive.card) this._recLive.card.hass = hass;
     if (this._player && "hass" in this._player) this._player.hass = hass;
+    for (const live of Object.values(this._otherLive)) if (live.card) live.card.hass = hass;
+    for (const other of this._others) if (other.player && "hass" in other.player) other.player.hass = hass;
     // A camera that shows up later (the DVR loaded after the page) joins the grid.
     if (this._view === "live" && this._cameras().join() !== this._shown) this._render();
   }
@@ -293,15 +317,20 @@ class IntelbrasDvrCard extends HTMLElement {
     const title = document.createElement("div");
     title.className = "title";
     title.textContent = this._config.title || this._t("cameras");
+    const mosaic = this._view === "live" || this._all;
     bar.append(
       title,
       this._button("mdi:view-grid-outline", this._t("mosaic"), () => this._show("live"),
-        { on: this._view === "live" }),
+        { on: mosaic }),
       this._button("mdi:cctv", this._t("camera"), () => this._show("rec"),
-        { on: this._view === "rec" }),
-      this._button("mdi:fullscreen", this._t("fullscreen"), () => this._toggleFull(),
-        { text: false, cls: "fullbtn" })
+        { on: !mosaic })
     );
+    if (mosaic) {
+      bar.append(this._button("mdi:history", this._t("recordings"),
+        () => this._show(this._all ? "live" : "all"), { on: this._all, text: false }));
+    }
+    bar.append(this._button("mdi:fullscreen", this._t("fullscreen"), () => this._toggleFull(),
+      { text: false, cls: "fullbtn" }));
     card.append(bar);
     this._syncFullButton();
 
@@ -309,14 +338,21 @@ class IntelbrasDvrCard extends HTMLElement {
     else this._renderTimeline(card);
   }
 
-  _show(view, channel) {
-    if (view === this._view && !channel) return;
+  _show(target, channel) {
+    const all = target === "all";
+    const view = all ? "rec" : target;
+    if (view === this._view && all === this._all && !channel) return;
     this._view = view;
+    this._all = all;
+    this._otherLive = {};
     if (view === "rec") {
-      this._loadDay({ day: null, ...(channel ? { channel } : {}) });
+      const first = all ? this._allChannels()[0] : channel;
+      if (all && !RATES_ALL.includes(this._rec.rate)) this._rec.rate = 1;
+      this._loadDay({ day: null, ...(first ? { channel: first } : {}) });
       return;
     }
     this._stop();
+    this._others = [];
     this._recLive = null;
     clearInterval(this._tick);
     this._tick = null;
@@ -358,6 +394,24 @@ class IntelbrasDvrCard extends HTMLElement {
     return own.indexOf(entityId) + 1 || 1;
   }
 
+  _allChannels() {
+    return [...new Set(this._cameras().map((id) => this._cameraChannel(id)))];
+  }
+
+  _otherHolder(entityId) {
+    const kept = this._otherLive[entityId];
+    if (kept) return kept.holder;
+    const holder = document.createElement("div");
+    holder.className = "stream";
+    const mine = { holder, card: null };
+    this._otherLive[entityId] = mine;
+    window.loadCardHelpers().then((helpers) => {
+      mine.card = this._liveCard(helpers, entityId);
+      holder.append(mine.card);
+    });
+    return holder;
+  }
+
   // Kept across renders, so loading a day does not restart the live picture.
   _liveHolder(entityId) {
     if (this._recLive && this._recLive.entity === entityId) return this._recLive.holder;
@@ -372,6 +426,19 @@ class IntelbrasDvrCard extends HTMLElement {
     return holder;
   }
 
+  _grid(count, chrome) {
+    const wrap = document.createElement("div");
+    wrap.className = "wrap";
+    const grid = document.createElement("div");
+    grid.className = "grid";
+    const columns = Math.max(1, Math.min(Number(this._config.columns) || 2, count));
+    grid.style.gridTemplateColumns = `repeat(${columns}, minmax(0, 1fr))`;
+    grid.style.setProperty("--ratio", columns / Math.ceil(count / columns));
+    grid.style.setProperty("--chrome", `${chrome}px`);
+    wrap.append(grid);
+    return grid;
+  }
+
   async _renderLive(card) {
     const cameras = this._cameras();
     this._shown = cameras.join();
@@ -382,11 +449,8 @@ class IntelbrasDvrCard extends HTMLElement {
       card.append(empty);
       return;
     }
-    const grid = document.createElement("div");
-    grid.className = "grid";
-    const columns = Math.max(1, Math.min(Number(this._config.columns) || 2, cameras.length));
-    grid.style.gridTemplateColumns = `repeat(${columns}, minmax(0, 1fr))`;
-    card.append(grid);
+    const grid = this._grid(cameras.length, 150);
+    card.append(grid.parentNode);
 
     const helpers = await window.loadCardHelpers();
     if (!grid.isConnected) return;
@@ -434,10 +498,10 @@ class IntelbrasDvrCard extends HTMLElement {
     return !!this._rec.day && this._rec.day === this._rec.today;
   }
 
-  _fetchRanges() {
+  _fetchRanges(channel = this._rec.channel) {
     return this._hass.callWS({
       type: "intelbras_dvr/recordings",
-      channel: this._rec.channel,
+      channel,
       ...(this._rec.day ? { day: this._rec.day } : {}),
     });
   }
@@ -451,12 +515,15 @@ class IntelbrasDvrCard extends HTMLElement {
     try {
       const answer = await this._fetchRanges();
       if (asked !== `${this._rec.channel}|${this._rec.day}`) return;
+      const others = await this._otherRanges(answer.day);
+      if (asked !== `${this._rec.channel}|${this._rec.day}`) return;
       Object.assign(this._rec, {
         entry: answer.entry_id,
         day: answer.day,
         today: answer.today,
         channels: answer.channels,
         ranges: answer.ranges,
+        others,
       });
       this._refreshed = Date.now();
     } catch (err) {
@@ -469,6 +536,21 @@ class IntelbrasDvrCard extends HTMLElement {
     this._render();
   }
 
+  // Each channel has its own gaps, and its video time has to be read against them.
+  async _otherRanges(day) {
+    const found = {};
+    if (!this._all) return found;
+    await Promise.all(this._allChannels().filter((channel) => channel !== this._rec.channel)
+      .map(async (channel) => {
+        try {
+          found[channel] = (await this._hass.callWS({
+            type: "intelbras_dvr/recordings", channel, ...(day ? { day } : {}),
+          })).ranges;
+        } catch (_) { /* played without knowing its gaps */ }
+      }));
+    return found;
+  }
+
   _drop(token) {
     if (token) this._hass.callWS({ type: "intelbras_dvr/playback/stop", token }).catch(() => {});
   }
@@ -478,6 +560,10 @@ class IntelbrasDvrCard extends HTMLElement {
     this._ask = (this._ask || 0) + 1;
     this._drop(this._rec.token);
     Object.assign(this._rec, { at: null, url: null, token: null, note: null, paused: false });
+    for (const other of this._others) {
+      this._drop(other.token);
+      Object.assign(other, { at: null, url: null, token: null, note: null, player: null });
+    }
   }
 
   _goLive() {
@@ -506,10 +592,9 @@ class IntelbrasDvrCard extends HTMLElement {
     return last + left;
   }
 
-  _offsetOf(second) {
-    const at = this._rec.at;
+  _offsetOf(second, at = this._rec.at, ranges = this._rec.ranges) {
     let total = 0;
-    for (const [from, to] of this._rec.ranges || []) {
+    for (const [from, to] of ranges || []) {
       if (to <= at) continue;
       const begin = Math.max(from, at);
       if (second < begin) break;
@@ -549,6 +634,7 @@ class IntelbrasDvrCard extends HTMLElement {
         video.currentTime = offset;
         rec.cursor = at;
         if (!rec.paused) video.play().catch(() => {});
+        this._syncOthers(0.5);
         this._follow();
         return;
       }
@@ -559,21 +645,48 @@ class IntelbrasDvrCard extends HTMLElement {
     this._fillPlayer();
     this._follow();
     const ask = this._ask;
-    try {
-      const media = await this._hass.callWS({
-        type: "intelbras_dvr/playback/start",
-        channel: rec.channel,
-        day: rec.day,
-        second: Math.min(at, DAY - 1),
-        length: WINDOW,
-        ...(rec.entry ? { entry_id: rec.entry } : {}),
+    const start = (channel) => this._hass.callWS({
+      type: "intelbras_dvr/playback/start",
+      channel,
+      day: rec.day,
+      second: Math.min(at, DAY - 1),
+      length: WINDOW,
+      ...(this._all ? { width: SMALL_WIDTH } : {}),
+      ...(rec.entry ? { entry_id: rec.entry } : {}),
+    });
+    const address = (url) => new URL(url, this._hass.hassUrl ? this._hass.hassUrl() : location.origin).href;
+    for (const other of this._others) {
+      const ranges = (rec.others || {})[other.channel];
+      if (ranges && !ranges.some(([from, to]) => at >= from && at < to - 2)) {
+        other.note = this._t("no_recording_there");
+        this._fillOther(other);
+        continue;
+      }
+      other.at = at;
+      this._fillOther(other);
+      start(other.channel).then((media) => {
+        if (this._ask !== ask) {
+          this._drop(media.token);
+          return;
+        }
+        other.token = media.token;
+        other.url = address(media.url);
+        this._fillOther(other);
+      }).catch((err) => {
+        if (this._ask !== ask) return;
+        other.at = null;
+        other.note = this._t("play_failed", { err: err.message || String(err) });
+        this._fillOther(other);
       });
+    }
+    try {
+      const media = await start(rec.channel);
       if (this._ask !== ask) {
         this._drop(media.token);
         return;
       }
       rec.token = media.token;
-      rec.url = new URL(media.url, this._hass.hassUrl ? this._hass.hassUrl() : location.origin).href;
+      rec.url = address(media.url);
     } catch (err) {
       if (this._ask !== ask) return;
       this._stop();
@@ -582,8 +695,7 @@ class IntelbrasDvrCard extends HTMLElement {
     if (this._view === "rec") this._fillPlayer();
   }
 
-  _video() {
-    const player = this._player;
+  _video(player = this._player) {
     if (!player) return null;
     return player.tagName === "VIDEO"
       ? player
@@ -606,6 +718,7 @@ class IntelbrasDvrCard extends HTMLElement {
       this._pausedAt = Date.now();
       if (video) video.pause();
     }
+    this._syncOthers();
     this._syncControls(rec.cursor);
   }
 
@@ -613,23 +726,102 @@ class IntelbrasDvrCard extends HTMLElement {
     this._rec.rate = rate;
     const video = this._video();
     if (video && this._rec.at != null) this._holdRate(video);
+    this._syncOthers();
     this._syncControls();
   }
 
   // Home Assistant's player takes an unfinished playlist for a live one and pulls the speed back to 1.
-  _holdRate(video) {
+  _holdRate(video, player = this._player) {
     const keep = () => {
-      if (this._video() === video && video.playbackRate !== this._rec.rate) {
+      if (this._video(player) === video && video.playbackRate !== this._rec.rate) {
         video.playbackRate = this._rec.rate;
       }
     };
     if (!video.dataset.held) {
       video.dataset.held = "1";
       video.addEventListener("ratechange", keep);
-      const hls = this._player && this._player._hlsPolyfillInstance;
+      const hls = player && player._hlsPolyfillInstance;
       if (hls && hls.config) hls.config.maxLiveSyncPlaybackRate = 1;
     }
     keep();
+  }
+
+  // The other channels are kept on the moment the first one shows.
+  _syncOthers(slack = 3) {
+    const rec = this._rec;
+    if (rec.at == null || rec.cursor == null) return;
+    for (const other of this._others) {
+      const video = this._video(other.player);
+      if (!video || other.at == null) continue;
+      this._holdRate(video, other.player);
+      if (rec.paused) {
+        if (!video.paused) video.pause();
+      } else if (video.paused && video.readyState > 1) {
+        video.play().catch(() => {});
+      }
+      if (!video.seekable.length) continue;
+      const want = this._offsetOf(rec.cursor, other.at, (rec.others || {})[other.channel] || rec.ranges);
+      const ready = video.seekable.end(video.seekable.length - 1);
+      if (Math.abs((video.currentTime || 0) - want) > slack && want <= ready - 1) video.currentTime = want;
+    }
+  }
+
+  _fillOther(other) {
+    const rec = this._rec;
+    const frame = other.frame;
+    const camera = rec.at == null && !rec.note && this._isToday()
+      ? this._channelCamera(other.channel) : null;
+    const hint = other.note || (other.at != null || rec.at != null
+      ? this._t("starting")
+      : rec.note || rec.error || (rec.ranges === null ? this._t("loading") : ""));
+    const shown = camera ? `live|${camera}` : other.url ? `video|${other.url}` : `hint|${hint}`;
+    if (other.shown === shown && frame.childElementCount) return;
+    other.shown = shown;
+    if (!camera) delete this._otherLive[this._channelCamera(other.channel)];
+    other.player = null;
+    frame.className = camera ? "player cellp live" : "player cellp";
+    frame.replaceChildren();
+    if (camera) {
+      frame.append(this._otherHolder(camera));
+    } else if (other.url) {
+      const apple = (navigator.vendor || "").startsWith("Apple") &&
+        document.createElement("video").canPlayType("application/vnd.apple.mpegurl");
+      const own = !apple && customElements.get("ha-hls-player");
+      const player = document.createElement(own ? "ha-hls-player" : "video");
+      player.className = "video";
+      player.controls = false;
+      player.muted = true;
+      player.playsInline = true;
+      if (own) {
+        player.hass = this._hass;
+        player.autoPlay = true;
+        player.url = other.url;
+      } else {
+        player.autoplay = true;
+        player.setAttribute("playsinline", "");
+        player.addEventListener("loadedmetadata", () => {
+          player.playbackRate = rec.rate;
+          if (!rec.paused) player.play().catch(() => {});
+        });
+        player.src = other.url;
+      }
+      other.player = player;
+      frame.append(player);
+    } else {
+      const text = document.createElement("div");
+      text.className = "hint";
+      text.textContent = hint;
+      frame.append(text);
+    }
+    frame.append(this._nameTag(other.channel));
+  }
+
+  _nameTag(channel) {
+    const tag = document.createElement("div");
+    tag.className = "name";
+    const camera = this._channelCamera(channel);
+    tag.textContent = camera ? this._name(camera) : this._t("channel", { n: channel });
+    return tag;
   }
 
   _isLive() {
@@ -650,6 +842,7 @@ class IntelbrasDvrCard extends HTMLElement {
     if (this._seeking || rec.paused) return;
     if (video && rec.at != null) {
       rec.cursor = this._clockOf(video.currentTime || 0);
+      this._syncOthers();
       if (video.ended) {
         if (this._ending === video) return;
         this._ending = video;
@@ -781,13 +974,14 @@ class IntelbrasDvrCard extends HTMLElement {
     this._player = null;
     const camera = rec.at == null && !rec.note && this._isToday()
       ? this._channelCamera(rec.channel) : null;
-    frame.className = camera ? "player live" : "player";
+    frame.className = `player${camera ? " live" : ""}${this._all ? " cellp" : ""}`;
     frame.replaceChildren();
     if (camera) {
       const badge = document.createElement("div");
       badge.className = "badge";
       badge.textContent = this._t("live");
-      frame.append(this._liveHolder(camera), badge);
+      frame.append(this._liveHolder(camera));
+      if (!this._all) frame.append(badge);
     } else if (rec.url) {
       this._recLive = null;
       // Safari plays HLS by itself; elsewhere Home Assistant's player is the steady one.
@@ -839,6 +1033,10 @@ class IntelbrasDvrCard extends HTMLElement {
           : rec.ranges.length ? this._t("pick_time") : this._t("no_recordings_day"));
       frame.append(hint);
     }
+    if (this._all) {
+      frame.append(this._nameTag(rec.channel));
+      for (const other of this._others) this._fillOther(other);
+    }
     this._syncControls();
   }
 
@@ -848,8 +1046,29 @@ class IntelbrasDvrCard extends HTMLElement {
     box.className = "rec";
     card.append(box);
 
-    const frame = document.createElement("div");
+    let frame = document.createElement("div");
     frame.className = "player";
+    let top = frame;
+    const kept = this._others;
+    this._others = [];
+    if (this._all) {
+      const channels = this._allChannels();
+      const grid = this._grid(channels.length, 430);
+      top = grid.parentNode;
+      for (const channel of channels) {
+        const cell = document.createElement("div");
+        cell.className = "player cellp";
+        grid.append(cell);
+        if (channel === rec.channel) {
+          frame = cell;
+          continue;
+        }
+        // A video already playing moves to the new cell with its state.
+        const before = kept.find((other) => other.channel === channel) || {};
+        this._others.push({ at: null, url: null, token: null, note: null, player: null,
+          ...before, channel, frame: cell, shown: null });
+      }
+    }
 
     const chips = document.createElement("div");
     chips.className = "chips";
@@ -912,8 +1131,8 @@ class IntelbrasDvrCard extends HTMLElement {
     const live = this._button("", this._t("live"), () => this._goLive(), { cls: "pill golive" });
     right.append(live);
     const rate = this._button("mdi:play-speed", "1x", () => {
-      const index = RATES.indexOf(this._rec.rate);
-      this._setRate(RATES[(index + 1) % RATES.length]);
+      const rates = this._all ? RATES_ALL : RATES;
+      this._setRate(rates[(rates.indexOf(this._rec.rate) + 1) % rates.length]);
     }, { cls: "pill" });
     rate.title = this._t("speed");
     rate.setAttribute("aria-label", rate.title);
@@ -925,7 +1144,7 @@ class IntelbrasDvrCard extends HTMLElement {
       this._button("mdi:fast-forward-60", this._t("fwd_1m"), () => jump(60), { text: false, cls: "round" }),
       right);
 
-    box.append(frame, chips, nav, now, timeline, transport);
+    box.append(top, ...(this._all ? [] : [chips]), nav, now, timeline, transport);
     this._parts = { frame, now, scroll, track, span, pause, live, rate };
     this._ticksKey = null;
     this._seeking = false;
