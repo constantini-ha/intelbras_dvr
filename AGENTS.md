@@ -114,8 +114,10 @@
 - Recordings are 16:9 (1080N widened); the live substream is 3:2. The history grid uses
   16:9 cells (`--aspect` on `.rec .grid`), the live grid 3:2; a live picture in a 16:9 cell is
   narrowed to 82.5% so it is letterboxed, not cropped.
-- Waiting states (`loading`, `starting`) draw `.hint.busy` (ring + sweep), and `_veil` keeps it
-  over a new player until `playing` / `loadeddata` of the inner video.
+- Waiting states draw `.hint.busy`: Home Assistant's own launch logo
+  (`/static/images/home-assistant-logo-loading.svg`, served by the instance, animated inside
+  the SVG) and the word `loading`, nothing else; the owner found a custom ring ugly and wants
+  HA's loader. `_veil` keeps it over a new player until `playing` / `loadeddata` of the video.
 - From 700 px of card width the timeline view is a grid: the time sits on the timeline and the
   date row shares a line with the transport. Grid items with `aspect-ratio` do not stretch
   under `justify-self: normal`; the player needs `justify-self: stretch` or it hugs the left.

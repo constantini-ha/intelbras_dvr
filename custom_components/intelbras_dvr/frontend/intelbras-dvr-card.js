@@ -105,19 +105,11 @@ const STYLE = `
   .hint { position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
     padding:16px; text-align:center; color:rgba(255,255,255,.78); font-size:14px }
   .player { container-type:inline-size }
-  .hint.busy { flex-direction:column; gap:12px; overflow:hidden; background:#000; font-size:13px }
-  .hint.busy::before { content:""; position:absolute; inset:0; transform:translateX(-100%);
-    background:linear-gradient(100deg, transparent 25%, rgba(255,255,255,.07) 50%, transparent 75%);
-    animation:sweep 1.8s ease-in-out infinite }
-  .spin { width:38px; height:38px; flex:none; animation:turn 1s linear infinite }
-  .spin circle { fill:none; stroke-width:3.5; stroke-linecap:round }
-  .spin .track { stroke:rgba(255,255,255,.14) }
-  .spin .arc { stroke:var(--primary-color); stroke-dasharray:30 101; animation:grow 1.6s ease-in-out infinite }
-  @keyframes turn { to { transform:rotate(360deg) } }
-  @keyframes grow { 50% { stroke-dasharray:70 101 } }
-  @keyframes sweep { to { transform:translateX(100%) } }
-  @container (max-width: 260px) { .hint.busy span { display:none } .spin { width:28px; height:28px } }
-  @media (prefers-reduced-motion: reduce) { .spin, .spin .arc, .hint.busy::before { animation:none } }
+  .hint.busy { flex-direction:column; gap:10px; background:#000; font-size:13px;
+    animation:busy-in .25s ease-out both }
+  .hint.busy img { width:64px; height:64px }
+  @keyframes busy-in { from { opacity:0 } }
+  @container (max-width: 260px) { .hint.busy img { width:44px; height:44px } .hint.busy span { display:none } }
   .badge { position:absolute; left:8px; top:8px; display:flex; align-items:center; gap:6px;
     padding:3px 9px; border-radius:10px; background:rgba(0,0,0,.55); color:#fff; font-size:12px;
     pointer-events:none }
@@ -849,7 +841,7 @@ class IntelbrasDvrCard extends HTMLElement {
       frame.append(player);
       this._veil(frame, player);
     } else if (waiting) {
-      frame.append(this._busy(hint));
+      frame.append(this._busy());
     } else {
       const text = document.createElement("div");
       text.className = "hint";
@@ -859,18 +851,23 @@ class IntelbrasDvrCard extends HTMLElement {
     frame.append(this._nameTag(other.channel));
   }
 
-  _busy(text) {
+  // Home Assistant's own launch logo, served by the instance itself.
+  _busy() {
     const box = document.createElement("div");
     box.className = "hint busy";
-    box.innerHTML = '<svg class="spin" viewBox="0 0 40 40" aria-hidden="true">' +
-      '<circle class="track" cx="20" cy="20" r="16"/><circle class="arc" cx="20" cy="20" r="16"/></svg><span></span>';
-    box.querySelector("span").textContent = text;
+    const logo = document.createElement("img");
+    logo.src = "/static/images/home-assistant-logo-loading.svg";
+    logo.alt = "";
+    logo.addEventListener("error", () => logo.remove());
+    const text = document.createElement("span");
+    text.textContent = this._t("loading");
+    box.append(logo, text);
     return box;
   }
 
   // The loader stays over a new player until its first picture.
   _veil(frame, player) {
-    const busy = this._busy(this._t("starting"));
+    const busy = this._busy();
     frame.append(busy);
     const done = () => busy.remove();
     const hook = () => {
@@ -1098,7 +1095,7 @@ class IntelbrasDvrCard extends HTMLElement {
           ? this._t("loading")
           : rec.ranges.length ? this._t("pick_time") : this._t("no_recordings_day"));
       if (!rec.note && !rec.error && (rec.at != null || rec.ranges === null)) {
-        frame.append(this._busy(text));
+        frame.append(this._busy());
       } else {
         const hint = document.createElement("div");
         hint.className = "hint";
