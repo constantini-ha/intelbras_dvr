@@ -4,8 +4,8 @@ const PLATFORM = "intelbras_dvr";
 // How much video one request to the DVR covers, in seconds.
 const WINDOW = 1800;
 const RATES = [1, 2, 4, 8];
-// Every camera at once is several conversions side by side, so the top speed is lower.
-const RATES_ALL = [1, 2, 4];
+// Four conversions at 4x take the whole N100; at 2x they use about half of it.
+const RATES_ALL = [1, 2];
 const SMALL_WIDTH = 640;
 // A paused recording is dropped by the server after a while; past this it is asked for again.
 const PAUSE_LIMIT = 240000;
@@ -47,7 +47,7 @@ const STYLE = `
     justify-content:center }
   /* Fixed 3:2 cells and a plain max-width: Safari left black bands under the pictures. */
   .grid { display:grid; gap:3px; background:#000; box-sizing:border-box; margin:0 auto; width:100%;
-    max-width:calc(max(200px, 100vh - var(--chrome, 150px)) * 1.5 * var(--ratio, 1)) }
+    max-width:calc(max(200px, 100vh - var(--chrome, 150px)) * var(--aspect, 1.5) * var(--ratio, 1)) }
   .cell { position:relative; background:#000; overflow:hidden; min-width:0; aspect-ratio:3/2 }
   .cell > .stream, .player.cellp.live > .stream { position:absolute; inset:0; display:flex;
     flex-direction:column; justify-content:center }
@@ -59,18 +59,19 @@ const STYLE = `
     background:rgba(0,0,0,.55); color:#fff; font-size:12px; pointer-events:none }
   :host(.full) .grid, :host(:fullscreen) .grid { align-content:center }
   :host(.full) .wrap, :host(:fullscreen) .wrap { container-type:size; overflow:hidden }
-  :host(.full) .grid, :host(:fullscreen) .grid { max-width:calc(100cqh * 1.5 * var(--ratio, 1)) }
+  :host(.full) .grid, :host(:fullscreen) .grid { max-width:calc(100cqh * var(--aspect, 1.5) * var(--ratio, 1)) }
   .empty { padding:24px 16px; color:var(--secondary-text-color); text-align:center }
 
   .rec { display:flex; flex-direction:column; min-height:0; flex:1;
     background:var(--card-background-color); color:var(--primary-text-color) }
-  .rec .grid { --chrome:430px }
+  /* Recordings are 16:9; the live substream is 3:2 and gets side bars here. */
+  .rec .grid { --chrome:430px; --aspect:1.7778 }
   /* Wide: the date and the transport share one row and the time sits on the timeline. */
   @container (min-width: 700px) {
     .rec { display:grid; grid-template-columns:auto minmax(0, 1fr);
       grid-template-rows:minmax(0, 1fr) auto auto auto;
       grid-template-areas:"top top" "chips chips" "line line" "nav ctl" }
-    .rec > .player, .rec > .wrap { grid-area:top }
+    .rec > .player, .rec > .wrap { grid-area:top; justify-self:stretch }
     .rec > .chips { grid-area:chips }
     .rec > .timeline { grid-area:line }
     .rec > .now { grid-area:line; align-self:start; justify-self:center; position:relative; z-index:1;
@@ -88,7 +89,8 @@ const STYLE = `
   .player > .video { display:block; width:100%; height:100% }
   .player.live { aspect-ratio:auto; max-height:none; min-height:72px }
   .player.live > .stream { margin:0 auto; max-width:calc(max(200px, 100vh - 470px) * 1.5) }
-  .player.cellp { aspect-ratio:3/2; max-height:none; min-width:0; min-height:0 }
+  .player.cellp { aspect-ratio:16/9; max-height:none; min-width:0; min-height:0 }
+  .player.cellp.live > .stream > * { width:82.5%; margin:0 auto }
   .player.cellp > .video { position:absolute; inset:0 }
   .player .name { position:absolute; right:8px; bottom:8px; padding:2px 8px; border-radius:10px;
     background:rgba(0,0,0,.55); color:#fff; font-size:12px; pointer-events:none }
@@ -97,7 +99,7 @@ const STYLE = `
   :host(.full) .player.live > .stream, :host(:fullscreen) .player.live > .stream {
     width:100%; max-width:calc((100vh - 330px) * 1.5) }
   :host(.full) .player.cellp, :host(:fullscreen) .player.cellp { flex:none; display:block;
-    aspect-ratio:3/2 }
+    aspect-ratio:16/9 }
   :host(.full) .player.cellp.live > .stream, :host(:fullscreen) .player.cellp.live > .stream {
     display:flex; max-width:none }
   .hint { position:absolute; inset:0; display:flex; align-items:center; justify-content:center;

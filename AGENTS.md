@@ -102,3 +102,20 @@
   the title shrank to "C…" on a phone held sideways.
 - In full screen `.wrap` is a size container and the grid's limit is `100cqh`, so the grid fits
   the height left by the bar (and by the timeline in the history grid) instead of overlapping it.
+- From 0.10.0 speed is made on the server: `playback/start` takes `speed` (1, 2, 4, 8) and
+  ffmpeg runs `setpts=PTS/speed,fps=15`, so the browser always plays at 1x. Browser-side
+  `playbackRate` at 2x/4x looked like skipping, not fast playback (hls.js stalls, buffer-hole
+  jumps and the grid's resync seeks). A new speed starts a new session from the cursor;
+  `rec.speed` is the speed of the running session and `_clockOf` / `_offsetOf` scale by it.
+  The notes above about holding `playbackRate` describe the past: `_holdRate` now pins 1.
+- Measured on the N100 (11/2026): one camera at 8x converts at 1.8x real time; four cameras
+  at 4x only 1.2-1.3x with the CPU at 84%, so the history grid stops at 2x (`RATES_ALL`).
+  `-skip_loop_filter all` on fast sessions gained about 10%.
+- Recordings are 16:9 (1080N widened); the live substream is 3:2. The history grid uses
+  16:9 cells (`--aspect` on `.rec .grid`), the live grid 3:2; a live picture in a 16:9 cell is
+  narrowed to 82.5% so it is letterboxed, not cropped.
+- Waiting states (`loading`, `starting`) draw `.hint.busy` (ring + sweep), and `_veil` keeps it
+  over a new player until `playing` / `loadeddata` of the inner video.
+- From 700 px of card width the timeline view is a grid: the time sits on the timeline and the
+  date row shares a line with the transport. Grid items with `aspect-ratio` do not stretch
+  under `justify-self: normal`; the player needs `justify-self: stretch` or it hugs the left.
