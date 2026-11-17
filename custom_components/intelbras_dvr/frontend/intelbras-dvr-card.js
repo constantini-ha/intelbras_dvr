@@ -20,7 +20,7 @@ const SPANS = [
 
 const STYLE = `
   :host { display:block }
-  ha-card { overflow:hidden; display:flex; flex-direction:column }
+  ha-card { overflow:hidden; display:flex; flex-direction:column; container-type:inline-size }
   :host(.full) { position:fixed; inset:0; z-index:9999; width:100%; height:100%; max-width:none;
     max-height:none; margin:0; border:0; overflow:hidden; box-sizing:border-box; background:#000;
     padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
@@ -41,12 +41,16 @@ const STYLE = `
     background:color-mix(in srgb, var(--primary-color) 14%, transparent) }
   .bar button.icon { padding:0 8px }
   :host(.full) .bar button:not(.on), :host(:fullscreen) .bar button:not(.on) { color:#fff }
+  @container (max-width: 369px) { .bar button span { display:none } .bar button { padding:0 8px } }
   /* The pictures never get taller than the window: on a wide screen they stop growing. */
   .wrap { background:#000; flex:1; min-height:0; display:flex; flex-direction:column;
     justify-content:center }
-  .grid { display:grid; gap:3px; background:#000; box-sizing:border-box; margin:0 auto;
-    width:min(100%, calc(max(200px, 100vh - var(--chrome, 150px)) * 1.5 * var(--ratio, 1))) }
-  .cell { position:relative; background:#000; overflow:hidden; min-width:0; min-height:72px }
+  /* Fixed 3:2 cells and a plain max-width: Safari left black bands under the pictures. */
+  .grid { display:grid; gap:3px; background:#000; box-sizing:border-box; margin:0 auto; width:100%;
+    max-width:calc(max(200px, 100vh - var(--chrome, 150px)) * 1.5 * var(--ratio, 1)) }
+  .cell { position:relative; background:#000; overflow:hidden; min-width:0; aspect-ratio:3/2 }
+  .cell > .stream, .player.cellp.live > .stream { position:absolute; inset:0; display:flex;
+    flex-direction:column; justify-content:center }
   .stream > * { display:block; --ha-card-border-radius:0; --ha-card-border-width:0;
     --ha-card-box-shadow:none; --ha-card-background:#000 }
   .cell .tap { position:absolute; inset:0 }
@@ -54,6 +58,8 @@ const STYLE = `
   .cell .name { position:absolute; right:8px; bottom:8px; padding:2px 8px; border-radius:10px;
     background:rgba(0,0,0,.55); color:#fff; font-size:12px; pointer-events:none }
   :host(.full) .grid, :host(:fullscreen) .grid { align-content:center }
+  :host(.full) .wrap, :host(:fullscreen) .wrap { container-type:size; overflow:hidden }
+  :host(.full) .grid, :host(:fullscreen) .grid { max-width:calc(100cqh * 1.5 * var(--ratio, 1)) }
   .empty { padding:24px 16px; color:var(--secondary-text-color); text-align:center }
 
   .rec { display:flex; flex-direction:column; min-height:0; flex:1;
@@ -62,20 +68,19 @@ const STYLE = `
     max-height:max(200px, calc(100vh - 470px)) }
   .player > .video { display:block; width:100%; height:100% }
   .player.live { aspect-ratio:auto; max-height:none; min-height:72px }
-  .player.live > .stream { margin:0 auto;
-    width:min(100%, calc(max(200px, 100vh - 470px) * 1.5)) }
-  .player.cellp { max-height:none; min-width:0 }
-  .player.cellp.live > .stream { width:100% }
+  .player.live > .stream { margin:0 auto; max-width:calc(max(200px, 100vh - 470px) * 1.5) }
+  .player.cellp { aspect-ratio:3/2; max-height:none; min-width:0; min-height:0 }
+  .player.cellp > .video { position:absolute; inset:0 }
   .player .name { position:absolute; right:8px; bottom:8px; padding:2px 8px; border-radius:10px;
     background:rgba(0,0,0,.55); color:#fff; font-size:12px; pointer-events:none }
   :host(.full) .player, :host(:fullscreen) .player { flex:1; min-height:0; max-height:none;
     aspect-ratio:auto; display:flex; align-items:center; justify-content:center }
   :host(.full) .player.live > .stream, :host(:fullscreen) .player.live > .stream {
-    width:min(100%, calc((100vh - 330px) * 1.5)) }
+    width:100%; max-width:calc((100vh - 330px) * 1.5) }
   :host(.full) .player.cellp, :host(:fullscreen) .player.cellp { flex:none; display:block;
-    aspect-ratio:16/9 }
-  :host(.full) .player.cellp.live, :host(:fullscreen) .player.cellp.live { aspect-ratio:auto }
-  :host(.full) .player.cellp.live > .stream, :host(:fullscreen) .player.cellp.live > .stream { width:100% }
+    aspect-ratio:3/2 }
+  :host(.full) .player.cellp.live > .stream, :host(:fullscreen) .player.cellp.live > .stream {
+    display:flex; max-width:none }
   .hint { position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
     padding:16px; text-align:center; color:rgba(255,255,255,.78); font-size:14px }
   .badge { position:absolute; left:8px; top:8px; display:flex; align-items:center; gap:6px;

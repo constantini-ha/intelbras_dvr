@@ -93,3 +93,12 @@
   The live substream is 3:2, hence the 1.5.
 - A feature that needs a new server parameter cannot be tried with `page.route` alone:
   publish a pre-release (`0.9.0rcN`), install it, test, then publish the real one.
+- Live cells are a fixed `aspect-ratio: 3/2` box with the picture card centred inside
+  (`position:absolute; inset:0`), and the grid's limit is a plain `max-width`. With
+  `width: min(100%, calc(…vh…))` and cells sized by the video, Safari on the iPhone (landscape)
+  made the rows taller than the pictures and left black bands under them; Chromium did not, so
+  this cannot be checked here. Recording cells in the history grid are 3:2 too.
+- Below 370 px of card width the bar shows icons only (`@container` on `ha-card`); with labels
+  the title shrank to "C…" on a phone held sideways.
+- In full screen `.wrap` is a size container and the grid's limit is `100cqh`, so the grid fits
+  the height left by the bar (and by the timeline in the history grid) instead of overlapping it.
