@@ -116,6 +116,8 @@ class Playback:
         self._proc = await asyncio.create_subprocess_exec(
             _ffmpeg(self.hass),
             "-hide_banner", "-loglevel", "error", "-nostdin",
+            # Fast playback decodes several times the frames; skipping the deblocking halves that cost.
+            *(("-skip_loop_filter", "all") if self.speed > 1 else ()),
             "-f", "dhav", "-i", "pipe:0",
             "-an", "-vf", _filters(self.width, self.speed),
             # A grid is several conversions at once: one core each, so they do not pile up.
