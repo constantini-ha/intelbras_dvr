@@ -64,6 +64,25 @@ const STYLE = `
 
   .rec { display:flex; flex-direction:column; min-height:0; flex:1;
     background:var(--card-background-color); color:var(--primary-text-color) }
+  .rec .grid { --chrome:430px }
+  /* Wide: the date and the transport share one row and the time sits on the timeline. */
+  @container (min-width: 700px) {
+    .rec { display:grid; grid-template-columns:auto minmax(0, 1fr);
+      grid-template-rows:minmax(0, 1fr) auto auto auto;
+      grid-template-areas:"top top" "chips chips" "line line" "nav ctl" }
+    .rec > .player, .rec > .wrap { grid-area:top }
+    .rec > .chips { grid-area:chips }
+    .rec > .timeline { grid-area:line }
+    .rec > .now { grid-area:line; align-self:start; justify-self:center; position:relative; z-index:1;
+      margin-top:3px; padding:0 10px; border-radius:10px; background:var(--secondary-background-color);
+      pointer-events:none }
+    .rec > .nav { grid-area:nav; padding:10px 4px 14px 12px }
+    .rec > .nav .gap { flex:0 0 4px }
+    .rec > .transport { grid-area:ctl }
+    .rec > .player:not(.cellp) { max-height:max(200px, calc(100vh - 380px)) }
+    .rec > .player.live > .stream { max-width:calc(max(200px, 100vh - 380px) * 1.5) }
+    .rec .grid { --chrome:345px }
+  }
   .player { position:relative; background:#000; aspect-ratio:16/9; overflow:hidden;
     max-height:max(200px, calc(100vh - 470px)) }
   .player > .video { display:block; width:100%; height:100% }
@@ -83,6 +102,20 @@ const STYLE = `
     display:flex; max-width:none }
   .hint { position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
     padding:16px; text-align:center; color:rgba(255,255,255,.78); font-size:14px }
+  .player { container-type:inline-size }
+  .hint.busy { flex-direction:column; gap:12px; overflow:hidden; background:#000; font-size:13px }
+  .hint.busy::before { content:""; position:absolute; inset:0; transform:translateX(-100%);
+    background:linear-gradient(100deg, transparent 25%, rgba(255,255,255,.07) 50%, transparent 75%);
+    animation:sweep 1.8s ease-in-out infinite }
+  .spin { width:38px; height:38px; flex:none; animation:turn 1s linear infinite }
+  .spin circle { fill:none; stroke-width:3.5; stroke-linecap:round }
+  .spin .track { stroke:rgba(255,255,255,.14) }
+  .spin .arc { stroke:var(--primary-color); stroke-dasharray:30 101; animation:grow 1.6s ease-in-out infinite }
+  @keyframes turn { to { transform:rotate(360deg) } }
+  @keyframes grow { 50% { stroke-dasharray:70 101 } }
+  @keyframes sweep { to { transform:translateX(100%) } }
+  @container (max-width: 260px) { .hint.busy span { display:none } .spin { width:28px; height:28px } }
+  @media (prefers-reduced-motion: reduce) { .spin, .spin .arc, .hint.busy::before { animation:none } }
   .badge { position:absolute; left:8px; top:8px; display:flex; align-items:center; gap:6px;
     padding:3px 9px; border-radius:10px; background:rgba(0,0,0,.55); color:#fff; font-size:12px;
     pointer-events:none }
@@ -431,7 +464,7 @@ class IntelbrasDvrCard extends HTMLElement {
     return holder;
   }
 
-  _grid(count, chrome) {
+  _grid(count) {
     const wrap = document.createElement("div");
     wrap.className = "wrap";
     const grid = document.createElement("div");
@@ -439,7 +472,6 @@ class IntelbrasDvrCard extends HTMLElement {
     const columns = Math.max(1, Math.min(Number(this._config.columns) || 2, count));
     grid.style.gridTemplateColumns = `repeat(${columns}, minmax(0, 1fr))`;
     grid.style.setProperty("--ratio", columns / Math.ceil(count / columns));
-    grid.style.setProperty("--chrome", `${chrome}px`);
     wrap.append(grid);
     return grid;
   }
@@ -454,7 +486,7 @@ class IntelbrasDvrCard extends HTMLElement {
       card.append(empty);
       return;
     }
-    const grid = this._grid(cameras.length, 150);
+    const grid = this._grid(cameras.length);
     card.append(grid.parentNode);
 
     const helpers = await window.loadCardHelpers();
@@ -585,7 +617,7 @@ class IntelbrasDvrCard extends HTMLElement {
   // The DVR joins the recorded stretches, so the video skips the gaps the clock has.
   _clockOf(offset) {
     const at = this._rec.at;
-    let left = offset;
+    let left = offset * (this._rec.speed || 1);
     let last = at;
     for (const [from, to] of this._rec.ranges || []) {
       if (to <= at) continue;
@@ -606,7 +638,7 @@ class IntelbrasDvrCard extends HTMLElement {
       total += Math.min(second, to) - begin;
       if (second < to) break;
     }
-    return total;
+    return total / (this._rec.speed || 1);
   }
 
   async _playAt(second) {
@@ -633,7 +665,8 @@ class IntelbrasDvrCard extends HTMLElement {
     const at = Math.max(0, Math.floor(inside ? second : next[0]));
     // A moment the player already holds is only a jump inside the same video.
     const video = this._video();
-    if (video && rec.url && rec.at != null && at >= rec.at && video.seekable.length) {
+    if (video && rec.url && rec.at != null && at >= rec.at && rec.speed === rec.rate &&
+        video.seekable.length) {
       const offset = this._offsetOf(at);
       if (offset <= video.seekable.end(video.seekable.length - 1) - 2) {
         video.currentTime = offset;
@@ -646,7 +679,7 @@ class IntelbrasDvrCard extends HTMLElement {
     }
     this._stop();
     this._recLive = null;
-    Object.assign(rec, { at, cursor: at });
+    Object.assign(rec, { at, cursor: at, speed: rec.rate });
     this._fillPlayer();
     this._follow();
     const ask = this._ask;
@@ -656,6 +689,7 @@ class IntelbrasDvrCard extends HTMLElement {
       day: rec.day,
       second: Math.min(at, DAY - 1),
       length: WINDOW,
+      ...(rec.speed > 1 ? { speed: rec.speed } : {}),
       ...(this._all ? { width: SMALL_WIDTH } : {}),
       ...(rec.entry ? { entry_id: rec.entry } : {}),
     });
@@ -727,20 +761,18 @@ class IntelbrasDvrCard extends HTMLElement {
     this._syncControls(rec.cursor);
   }
 
+  // The server converts at the chosen speed, so a new speed asks again from the same moment.
   _setRate(rate) {
-    this._rec.rate = rate;
-    const video = this._video();
-    if (video && this._rec.at != null) this._holdRate(video);
-    this._syncOthers();
+    const rec = this._rec;
+    rec.rate = rate;
+    if (rec.at != null && rec.cursor != null) this._playAt(rec.cursor);
     this._syncControls();
   }
 
-  // Home Assistant's player takes an unfinished playlist for a live one and pulls the speed back to 1.
+  // Videos always play at 1x; hls.js would otherwise speed up to catch the end of the playlist.
   _holdRate(video, player = this._player) {
     const keep = () => {
-      if (this._video(player) === video && video.playbackRate !== this._rec.rate) {
-        video.playbackRate = this._rec.rate;
-      }
+      if (this._video(player) === video && video.playbackRate !== 1) video.playbackRate = 1;
     };
     if (!video.dataset.held) {
       video.dataset.held = "1";
@@ -776,6 +808,8 @@ class IntelbrasDvrCard extends HTMLElement {
     const frame = other.frame;
     const camera = rec.at == null && !rec.note && this._isToday()
       ? this._channelCamera(other.channel) : null;
+    const waiting = !other.note && (other.at != null || rec.at != null || (!rec.note && !rec.error &&
+      rec.ranges === null));
     const hint = other.note || (other.at != null || rec.at != null
       ? this._t("starting")
       : rec.note || rec.error || (rec.ranges === null ? this._t("loading") : ""));
@@ -805,13 +839,15 @@ class IntelbrasDvrCard extends HTMLElement {
         player.autoplay = true;
         player.setAttribute("playsinline", "");
         player.addEventListener("loadedmetadata", () => {
-          player.playbackRate = rec.rate;
           if (!rec.paused) player.play().catch(() => {});
         });
         player.src = other.url;
       }
       other.player = player;
       frame.append(player);
+      this._veil(frame, player);
+    } else if (waiting) {
+      frame.append(this._busy(hint));
     } else {
       const text = document.createElement("div");
       text.className = "hint";
@@ -819,6 +855,31 @@ class IntelbrasDvrCard extends HTMLElement {
       frame.append(text);
     }
     frame.append(this._nameTag(other.channel));
+  }
+
+  _busy(text) {
+    const box = document.createElement("div");
+    box.className = "hint busy";
+    box.innerHTML = '<svg class="spin" viewBox="0 0 40 40" aria-hidden="true">' +
+      '<circle class="track" cx="20" cy="20" r="16"/><circle class="arc" cx="20" cy="20" r="16"/></svg><span></span>';
+    box.querySelector("span").textContent = text;
+    return box;
+  }
+
+  // The loader stays over a new player until its first picture.
+  _veil(frame, player) {
+    const busy = this._busy(this._t("starting"));
+    frame.append(busy);
+    const done = () => busy.remove();
+    const hook = () => {
+      const video = this._video(player);
+      if (!video) return false;
+      if (video.readyState > 2) done();
+      video.addEventListener("playing", done, { once: true });
+      video.addEventListener("loadeddata", done, { once: true });
+      return true;
+    };
+    if (!hook()) Promise.resolve(player.updateComplete).then(() => hook() || setTimeout(hook, 300));
   }
 
   _nameTag(channel) {
@@ -1007,7 +1068,6 @@ class IntelbrasDvrCard extends HTMLElement {
         player.playsInline = true;
         player.setAttribute("playsinline", "");
         player.addEventListener("loadedmetadata", () => {
-          player.playbackRate = rec.rate;
           if (!rec.paused) player.play().catch(() => {});
         });
         player.addEventListener("error", () => {
@@ -1027,16 +1087,22 @@ class IntelbrasDvrCard extends HTMLElement {
       }
       this._player = player;
       frame.append(player);
+      this._veil(frame, player);
     } else {
       this._recLive = null;
-      const hint = document.createElement("div");
-      hint.className = "hint";
-      hint.textContent = rec.note || rec.error || (rec.at != null
+      const text = rec.note || rec.error || (rec.at != null
         ? this._t("starting")
         : rec.ranges === null
           ? this._t("loading")
           : rec.ranges.length ? this._t("pick_time") : this._t("no_recordings_day"));
-      frame.append(hint);
+      if (!rec.note && !rec.error && (rec.at != null || rec.ranges === null)) {
+        frame.append(this._busy(text));
+      } else {
+        const hint = document.createElement("div");
+        hint.className = "hint";
+        hint.textContent = text;
+        frame.append(hint);
+      }
     }
     if (this._all) {
       frame.append(this._nameTag(rec.channel));
@@ -1058,7 +1124,7 @@ class IntelbrasDvrCard extends HTMLElement {
     this._others = [];
     if (this._all) {
       const channels = this._allChannels();
-      const grid = this._grid(channels.length, 430);
+      const grid = this._grid(channels.length);
       top = grid.parentNode;
       for (const channel of channels) {
         const cell = document.createElement("div");
