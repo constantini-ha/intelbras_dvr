@@ -10,6 +10,23 @@ const SMALL_WIDTH = 640;
 // A paused recording is dropped by the server after a while; past this it is asked for again.
 const PAUSE_LIMIT = 240000;
 const DAY = 86400;
+const LIVE_CHECK = 700;
+// A live picture with no frame by then counts as failed; a failed one is rebuilt after RETRY.
+const STALL = 45000;
+const RETRY = 30000;
+const LOADING_LOGO = "/static/images/home-assistant-logo-loading.svg";
+// That logo held still and greyed, with a badge; the instance only serves the animated one.
+const FAILED_LOGO = `<svg viewBox="0 0 120 120" aria-hidden="true">
+  <g transform="matrix(1.5 0 0 1.5 -45 -14.45)">
+    <path class="house" d="M73.5367 13.0937 106.463 46.0524v.0033C108.41 48.0043 110 51.848 110 54.6007v30.0292c0 2.7527-2.25 5.0049-5 5.0049l-70-.0034c-2.75 0-5-2.2522-5-5.0048V54.5974c0-2.7527 1.5933-6.5998 3.5367-8.545l32.93-32.9587c1.9433-1.9452 5.1266-1.9452 7.07 0Z"/>
+    <path class="mark" d="m70 89.6348-20-20M70 89.6348v-52M90 58.1348l-20 20"/>
+    <circle class="dot" r="7" cx="50" cy="69.6348"/>
+    <circle class="dot" r="7" cx="90" cy="58.6348"/>
+    <circle class="dot" r="7" cx="70" cy="37.6348"/>
+  </g>
+  <circle class="alarm" cx="98" cy="98" r="19"/>
+  <path class="bang" d="M98 88.5v10M98 106.5v.5"/>
+</svg>`;
 // How much of the day fits across the timeline, and the gap between its labels.
 const SPANS = [
   { seconds: 600, label: "10 min", step: 120 },
@@ -49,6 +66,7 @@ const STYLE = `
   .grid { display:grid; gap:3px; background:#000; box-sizing:border-box; margin:0 auto; width:100%;
     max-width:calc(max(200px, 100vh - var(--chrome, 150px)) * var(--aspect, 1.5) * var(--ratio, 1)) }
   .cell { position:relative; background:#000; overflow:hidden; min-width:0; aspect-ratio:3/2 }
+  .stream { position:relative; container-type:inline-size }
   .cell > .stream, .player.cellp.live > .stream { position:absolute; inset:0; display:flex;
     flex-direction:column; justify-content:center }
   .stream > * { display:block; --ha-card-border-radius:0; --ha-card-border-width:0;
@@ -108,8 +126,23 @@ const STYLE = `
   .hint.busy { flex-direction:column; gap:10px; background:#000; font-size:13px;
     animation:busy-in .25s ease-out both }
   .hint.busy img { width:64px; height:64px }
+  .hint.fail { flex-direction:column; gap:10px; background:#000; font-size:13px; line-height:1.3;
+    animation:busy-in .25s ease-out both }
+  .hint.fail svg { width:60px; height:60px; overflow:visible }
+  .hint.fail .house { fill:#3a404c }
+  .hint.fail .mark { fill:none; stroke:#8e96a4; stroke-width:6; stroke-linecap:round }
+  .hint.fail .dot { fill:#8e96a4 }
+  .hint.fail .alarm { fill:var(--error-color, #db4437); stroke:#000; stroke-width:5 }
+  .hint.fail .bang { fill:none; stroke:#fff; stroke-width:5.5; stroke-linecap:round }
+  .hint.fail strong { margin-top:2px; font-weight:500; color:rgba(255,255,255,.9) }
+  .hint.fail span { margin-top:-6px; font-size:12px; color:rgba(255,255,255,.6) }
+  /* Room for the camera name in the corner. */
+  .cell .hint.fail, .cellp .hint.fail { padding-bottom:30px }
   @keyframes busy-in { from { opacity:0 } }
-  @container (max-width: 260px) { .hint.busy img { width:44px; height:44px } .hint.busy span { display:none } }
+  @container (max-width: 260px) { .hint.busy img { width:44px; height:44px } .hint.busy span { display:none }
+    .hint.fail { gap:6px; font-size:12px } .hint.fail span { margin-top:-4px }
+    .hint.fail svg { width:40px; height:40px } }
+  @container (max-width: 200px) { .hint.fail span { display:none } .hint.fail svg { width:34px; height:34px } }
   .badge { position:absolute; left:8px; top:8px; display:flex; align-items:center; gap:6px;
     padding:3px 9px; border-radius:10px; background:rgba(0,0,0,.55); color:#fff; font-size:12px;
     pointer-events:none }
@@ -200,6 +233,7 @@ class IntelbrasDvrCard extends HTMLElement {
     this._all = false;
     this._others = [];
     this._otherLive = {};
+    this._lives = new Set();
   }
 
   setConfig(config) {
@@ -215,10 +249,8 @@ class IntelbrasDvrCard extends HTMLElement {
       this._start();
       return;
     }
-    for (const card of this._streams) card.hass = hass;
-    if (this._recLive && this._recLive.card) this._recLive.card.hass = hass;
+    for (const live of this._lives) if (live.card) live.card.hass = hass;
     if (this._player && "hass" in this._player) this._player.hass = hass;
-    for (const live of Object.values(this._otherLive)) if (live.card) live.card.hass = hass;
     for (const other of this._others) if (other.player && "hass" in other.player) other.player.hass = hass;
     // A camera that shows up later (the DVR loaded after the page) joins the grid.
     if (this._view === "live" && this._cameras().join() !== this._shown) this._render();
@@ -237,6 +269,7 @@ class IntelbrasDvrCard extends HTMLElement {
     };
     document.addEventListener("keydown", this._onKey);
     if (this._hass && this._view === "rec" && !this._tick) this._startTick();
+    if (this._lives.size && !this._liveTick) this._startLiveCheck();
   }
 
   disconnectedCallback() {
@@ -244,6 +277,8 @@ class IntelbrasDvrCard extends HTMLElement {
     document.removeEventListener("keydown", this._onKey);
     clearInterval(this._tick);
     this._tick = null;
+    clearInterval(this._liveTick);
+    this._liveTick = null;
   }
 
   getCardSize() {
@@ -336,7 +371,6 @@ class IntelbrasDvrCard extends HTMLElement {
   _render() {
     const root = this.shadowRoot;
     root.innerHTML = "";
-    this._streams = [];
     this._player = null;
     this._parts = null;
     const style = document.createElement("style");
@@ -433,29 +467,92 @@ class IntelbrasDvrCard extends HTMLElement {
   _otherHolder(entityId) {
     const kept = this._otherLive[entityId];
     if (kept) return kept.holder;
-    const holder = document.createElement("div");
-    holder.className = "stream";
-    const mine = { holder, card: null };
-    this._otherLive[entityId] = mine;
-    window.loadCardHelpers().then((helpers) => {
-      mine.card = this._liveCard(helpers, entityId);
-      holder.append(mine.card);
-    });
-    return holder;
+    this._otherLive[entityId] = this._newLive(entityId);
+    return this._otherLive[entityId].holder;
   }
 
   // Kept across renders, so loading a day does not restart the live picture.
   _liveHolder(entityId) {
     if (this._recLive && this._recLive.entity === entityId) return this._recLive.holder;
+    this._recLive = this._newLive(entityId);
+    return this._recLive.holder;
+  }
+
+  // A live picture covered by the loader until its first frame, and by the reason when it fails.
+  _newLive(entityId) {
     const holder = document.createElement("div");
     holder.className = "stream";
-    const mine = { entity: entityId, holder, card: null };
-    this._recLive = mine;
+    const live = { entity: entityId, holder, card: null, veil: null, shown: null };
+    this._lives.add(live);
+    this._mountLive(live);
+    this._paintVeil(live, { busy: true });
+    if (!this._liveTick && this.isConnected) this._startLiveCheck();
+    return live;
+  }
+
+  _mountLive(live) {
+    live.since = Date.now();
+    live.failedAt = 0;
     window.loadCardHelpers().then((helpers) => {
-      mine.card = this._liveCard(helpers, entityId);
-      holder.append(mine.card);
+      const card = this._liveCard(helpers, live.entity);
+      if (live.card) live.card.replaceWith(card);
+      else live.holder.prepend(card);
+      live.card = card;
     });
-    return holder;
+  }
+
+  _startLiveCheck() {
+    this._liveTick = setInterval(() => this._checkLives(), LIVE_CHECK);
+  }
+
+  _checkLives() {
+    const kept = new Set([this._recLive, ...Object.values(this._otherLive)]);
+    for (const live of this._lives) {
+      if (!live.holder.isConnected) {
+        if (!kept.has(live)) this._lives.delete(live);
+        continue;
+      }
+      const state = this._liveState(live);
+      if (!state.fail) live.failedAt = 0;
+      else if (!live.failedAt) live.failedAt = Date.now();
+      this._paintVeil(live, state);
+      // Home Assistant's player gives up for good on some errors; a new card starts over.
+      if (state.fail === "camera_failed" && Date.now() - live.failedAt > RETRY) this._mountLive(live);
+    }
+    if (!this._lives.size) {
+      clearInterval(this._liveTick);
+      this._liveTick = null;
+    }
+  }
+
+  _liveState(live) {
+    const stateObj = this._hass.states[live.entity];
+    if (!stateObj || stateObj.state === "unavailable") return { fail: "camera_offline" };
+    const found = [];
+    const walk = (root) => {
+      for (const el of root.querySelectorAll("*")) {
+        if (el.tagName === "VIDEO" || el.tagName === "IMG" || el.tagName === "HA-ALERT") found.push(el);
+        if (el.shadowRoot) walk(el.shadowRoot);
+      }
+    };
+    // Only the picture card: the veil's own logo is an image too.
+    if (live.card && live.card.shadowRoot) walk(live.card.shadowRoot);
+    const alert = found.find((el) => el.tagName === "HA-ALERT");
+    if (alert) return { fail: "camera_failed", detail: alert.textContent.trim() };
+    const playing = found.some((el) => (el.tagName === "VIDEO"
+      ? el.readyState > 1 : el.tagName === "IMG" && el.complete && el.naturalWidth > 0));
+    if (playing) return {};
+    return Date.now() - live.since > STALL ? { fail: "camera_failed" } : { busy: true };
+  }
+
+  _paintVeil(live, state) {
+    const key = state.fail ? `${state.fail}|${state.detail || ""}` : state.busy ? "busy" : "";
+    if (live.shown === key) return;
+    live.shown = key;
+    if (live.veil) live.veil.remove();
+    live.veil = state.fail ? this._failed(state) : state.busy ? this._busy() : null;
+    // Last in the holder, so it paints over the picture card.
+    if (live.veil) live.holder.append(live.veil);
   }
 
   _grid(count) {
@@ -470,7 +567,7 @@ class IntelbrasDvrCard extends HTMLElement {
     return grid;
   }
 
-  async _renderLive(card) {
+  _renderLive(card) {
     const cameras = this._cameras();
     this._shown = cameras.join();
     if (!cameras.length) {
@@ -483,16 +580,10 @@ class IntelbrasDvrCard extends HTMLElement {
     const grid = this._grid(cameras.length);
     card.append(grid.parentNode);
 
-    const helpers = await window.loadCardHelpers();
-    if (!grid.isConnected) return;
     for (const entityId of cameras) {
       const cell = document.createElement("div");
       cell.className = "cell";
-      const stream = document.createElement("div");
-      stream.className = "stream";
-      const live = this._liveCard(helpers, entityId);
-      this._streams.push(live);
-      stream.append(live);
+      const stream = this._newLive(entityId).holder;
       const tap = document.createElement("button");
       tap.className = "tap";
       const name = this._name(entityId);
@@ -856,12 +947,30 @@ class IntelbrasDvrCard extends HTMLElement {
     const box = document.createElement("div");
     box.className = "hint busy";
     const logo = document.createElement("img");
-    logo.src = "/static/images/home-assistant-logo-loading.svg";
+    logo.src = LOADING_LOGO;
     logo.alt = "";
     logo.addEventListener("error", () => logo.remove());
     const text = document.createElement("span");
     text.textContent = this._t("loading");
     box.append(logo, text);
+    return box;
+  }
+
+  _failed(state) {
+    const box = document.createElement("div");
+    box.className = "hint fail";
+    box.setAttribute("role", "status");
+    box.innerHTML = FAILED_LOGO;
+    // Home Assistant's own message is English only; it stays reachable on hover.
+    if (state.detail) box.title = state.detail;
+    const text = document.createElement("strong");
+    text.textContent = this._t(state.fail);
+    box.append(text);
+    if (state.fail === "camera_failed") {
+      const next = document.createElement("span");
+      next.textContent = this._t("retrying");
+      box.append(next);
+    }
     return box;
   }
 

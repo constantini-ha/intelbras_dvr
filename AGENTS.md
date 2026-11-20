@@ -121,3 +121,16 @@
 - From 700 px of card width the timeline view is a grid: the time sits on the timeline and the
   date row shares a line with the transport. Grid items with `aspect-ratio` do not stretch
   under `justify-self: normal`; the player needs `justify-self: stretch` or it hugs the left.
+- From 0.10.2 every live picture (grid cells, the camera view, the history grid's live cells) is a
+  `live` object from `_newLive`: a `.stream` holder, HA's `picture-entity` card and a veil appended
+  after the card (DOM order puts it over the picture; the cell's tap button and name tag still sit
+  above it). `_checkLives` runs every 700 ms and walks the card's shadow roots: a `ha-alert` or the
+  camera entity `unavailable` draws `.hint.fail` (HA's logo held still and greyed, red badge, reason
+  below); a `video` past `readyState` 1 (or an MJPEG `img` that loaded) removes the veil; otherwise
+  `.hint.busy`. Walk the card only, never the holder: the veil's own logo is an `<img>` and once made
+  the loader blink on and off. HA's player gives up for good on some errors, so a cell failed for
+  30 s gets a fresh card. HLS error texts are English only; the card shows its own translated line
+  and keeps HA's text in `title`.
+- Simulate failures with `page.routeWebSocket('**/api/websocket')` answering `camera/webrtc/offer`
+  and `camera/stream` with `success: false`, plus `page.route('**/api/hls/**')` aborted:
+  `~/ha-work/tools/pw-dvr-cells.mjs <WxH> <lang> <normal|fail|slow>`.
