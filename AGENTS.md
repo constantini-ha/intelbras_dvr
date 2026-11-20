@@ -125,7 +125,7 @@
   `live` object from `_newLive`: a `.stream` holder, HA's `picture-entity` card and a veil appended
   after the card (DOM order puts it over the picture; the cell's tap button and name tag still sit
   above it). `_checkLives` runs every 700 ms and walks the card's shadow roots: a `ha-alert` or the
-  camera entity `unavailable` draws `.hint.fail` (HA's logo held still and greyed, red badge, reason
+  camera entity `unavailable` draws `.hint.fail` (HA's logo held still in red, reason
   below); a `video` past `readyState` 1 (or an MJPEG `img` that loaded) removes the veil; otherwise
   `.hint.busy`. Walk the card only, never the holder: the veil's own logo is an `<img>` and once made
   the loader blink on and off. HA's player gives up for good on some errors, so a cell failed for

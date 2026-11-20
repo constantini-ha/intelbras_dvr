@@ -15,7 +15,7 @@ const LIVE_CHECK = 700;
 const STALL = 45000;
 const RETRY = 30000;
 const LOADING_LOGO = "/static/images/home-assistant-logo-loading.svg";
-// That logo held still and greyed, with a badge; the instance only serves the animated one.
+// That logo held still and in red; the instance only serves the animated one.
 const FAILED_LOGO = `<svg viewBox="0 0 120 120" aria-hidden="true">
   <g transform="matrix(1.5 0 0 1.5 -45 -14.45)">
     <path class="house" d="M73.5367 13.0937 106.463 46.0524v.0033C108.41 48.0043 110 51.848 110 54.6007v30.0292c0 2.7527-2.25 5.0049-5 5.0049l-70-.0034c-2.75 0-5-2.2522-5-5.0048V54.5974c0-2.7527 1.5933-6.5998 3.5367-8.545l32.93-32.9587c1.9433-1.9452 5.1266-1.9452 7.07 0Z"/>
@@ -24,8 +24,6 @@ const FAILED_LOGO = `<svg viewBox="0 0 120 120" aria-hidden="true">
     <circle class="dot" r="7" cx="90" cy="58.6348"/>
     <circle class="dot" r="7" cx="70" cy="37.6348"/>
   </g>
-  <circle class="alarm" cx="98" cy="98" r="19"/>
-  <path class="bang" d="M98 88.5v10M98 106.5v.5"/>
 </svg>`;
 // How much of the day fits across the timeline, and the gap between its labels.
 const SPANS = [
@@ -129,11 +127,9 @@ const STYLE = `
   .hint.fail { flex-direction:column; gap:10px; background:#000; font-size:13px; line-height:1.3;
     animation:busy-in .25s ease-out both }
   .hint.fail svg { width:60px; height:60px; overflow:visible }
-  .hint.fail .house { fill:#3a404c }
-  .hint.fail .mark { fill:none; stroke:#8e96a4; stroke-width:6; stroke-linecap:round }
-  .hint.fail .dot { fill:#8e96a4 }
-  .hint.fail .alarm { fill:var(--error-color, #db4437); stroke:#000; stroke-width:5 }
-  .hint.fail .bang { fill:none; stroke:#fff; stroke-width:5.5; stroke-linecap:round }
+  .hint.fail .house { fill:var(--error-color, #db4437) }
+  .hint.fail .mark { fill:none; stroke:#f2f4f9; stroke-width:6; stroke-linecap:round }
+  .hint.fail .dot { fill:#f2f4f9 }
   .hint.fail strong { margin-top:2px; font-weight:500; color:rgba(255,255,255,.9) }
   .hint.fail span { margin-top:-6px; font-size:12px; color:rgba(255,255,255,.6) }
   /* Room for the camera name in the corner. */
