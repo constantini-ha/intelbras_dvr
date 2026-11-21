@@ -82,6 +82,7 @@ const STYLE = `
     background:var(--card-background-color); color:var(--primary-text-color) }
   /* Recordings are 16:9; the live substream is 3:2 and gets side bars here. */
   .rec .grid { --chrome:430px; --aspect:1.7778 }
+  .rec .grid.live { --aspect:1.5 }
   /* Wide: the date and the transport share one row and the time sits on the timeline. */
   @container (min-width: 700px) {
     .rec { display:grid; grid-template-columns:auto minmax(0, 1fr);
@@ -106,7 +107,13 @@ const STYLE = `
   .player.live { aspect-ratio:auto; max-height:none; min-height:72px }
   .player.live > .stream { margin:0 auto; max-width:calc(max(200px, 100vh - 470px) * 1.5) }
   .player.cellp { aspect-ratio:16/9; max-height:none; min-width:0; min-height:0 }
-  .player.cellp.live > .stream > * { width:82.5%; margin:0 auto }
+  .rec .grid.live > .player.cellp, :host(.full) .grid.live > .player.cellp,
+    :host(:fullscreen) .grid.live > .player.cellp { aspect-ratio:3/2 }
+  .grid > [data-channel] { cursor:pointer }
+  /* One picture fills the grid; the others keep playing under it, so going back costs nothing. */
+  .grid.solo { grid-template-columns:minmax(0, 1fr) !important; --ratio:1 !important; position:relative }
+  .grid.solo > :not([data-picked]) { position:absolute; inset:0; z-index:0 }
+  .grid.solo > [data-picked] { z-index:1 }
   .player.cellp > .video { position:absolute; inset:0 }
   .player .name { position:absolute; right:8px; bottom:8px; padding:2px 8px; border-radius:10px;
     background:rgba(0,0,0,.55); color:#fff; font-size:12px; pointer-events:none }
@@ -230,6 +237,9 @@ class IntelbrasDvrCard extends HTMLElement {
     this._others = [];
     this._otherLive = {};
     this._lives = new Set();
+    // The channel shown alone over the grid, and whether that tap is what opened full screen.
+    this._solo = null;
+    this._soloFull = false;
   }
 
   setConfig(config) {
@@ -313,13 +323,19 @@ class IntelbrasDvrCard extends HTMLElement {
     return (state && state.attributes.friendly_name) || entityId;
   }
 
+  // Inside Home Assistant's shadow roots `document.fullscreenElement` is <home-assistant>.
+  _ownsFullscreen() {
+    const root = this.getRootNode();
+    return (root.fullscreenElement || document.fullscreenElement) === this;
+  }
+
   _isFull() {
-    return this.classList.contains("full") || document.fullscreenElement === this;
+    return this.classList.contains("full") || this._ownsFullscreen();
   }
 
   async _toggleFull() {
     if (this._isFull()) {
-      if (document.fullscreenElement === this) await document.exitFullscreen();
+      if (this._ownsFullscreen()) await document.exitFullscreen();
       this._cover(false);
     } else if (this.requestFullscreen) {
       await this.requestFullscreen().catch(() => this._cover(true));
@@ -351,6 +367,38 @@ class IntelbrasDvrCard extends HTMLElement {
     button.setAttribute("aria-label", button.title);
     button.querySelector("ha-icon").setAttribute(
       "icon", full ? "mdi:fullscreen-exit" : "mdi:fullscreen");
+    if (!full && this._solo != null) {
+      this._solo = null;
+      this._soloFull = false;
+      this._applySolo();
+    }
+  }
+
+  // A tapped picture takes the whole screen; tapped again, the grid (and the screen) come back.
+  _pick(channel) {
+    this._solo = channel;
+    if (channel != null && !this._isFull()) {
+      this._soloFull = true;
+      this._toggleFull();
+    } else if (channel == null && this._soloFull) {
+      this._soloFull = false;
+      if (this._isFull()) this._toggleFull();
+    }
+    this._applySolo();
+  }
+
+  _applySolo() {
+    const root = this.shadowRoot;
+    const grid = root.querySelector(".grid");
+    const cells = grid ? [...grid.children] : [];
+    const solo = cells.some((cell) => Number(cell.dataset.channel) === this._solo) ? this._solo : null;
+    if (grid) grid.classList.toggle("solo", solo != null);
+    for (const cell of cells) cell.toggleAttribute("data-picked", Number(cell.dataset.channel) === solo);
+    const mosaic = root.querySelector("button.mosaicbtn");
+    const camera = root.querySelector("button.camerabtn");
+    const onGrid = this._view === "live" || this._all;
+    if (mosaic) mosaic.classList.toggle("on", onGrid && solo == null);
+    if (camera) camera.classList.toggle("on", !onGrid || solo != null);
   }
 
   _button(icon, label, onClick, { on = false, text = true, cls = "" } = {}) {
@@ -382,10 +430,11 @@ class IntelbrasDvrCard extends HTMLElement {
     const mosaic = this._view === "live" || this._all;
     bar.append(
       title,
-      this._button("mdi:view-grid-outline", this._t("mosaic"), () => this._show("live"),
-        { on: mosaic }),
-      this._button("mdi:cctv", this._t("camera"), () => this._show("rec"),
-        { on: !mosaic })
+      this._button("mdi:view-grid-outline", this._t("mosaic"),
+        () => (this._solo != null ? this._pick(null) : this._show("live")),
+        { on: mosaic, cls: "mosaicbtn" }),
+      this._button("mdi:cctv", this._t("camera"), () => this._show("rec", this._solo || undefined),
+        { on: !mosaic, cls: "camerabtn" })
     );
     if (mosaic) {
       bar.append(this._button("mdi:history", this._t("recordings"),
@@ -398,6 +447,7 @@ class IntelbrasDvrCard extends HTMLElement {
 
     if (this._view === "live") this._renderLive(card);
     else this._renderTimeline(card);
+    this._applySolo();
   }
 
   _show(target, channel) {
@@ -407,6 +457,11 @@ class IntelbrasDvrCard extends HTMLElement {
     this._view = view;
     this._all = all;
     this._otherLive = {};
+    // The camera view is a screen of its own: what the tap opened stays open.
+    if (view === "rec" && !all) {
+      this._solo = null;
+      this._soloFull = false;
+    }
     if (view === "rec") {
       const first = all ? this._allChannels()[0] : channel;
       if (all && !RATES_ALL.includes(this._rec.rate)) this._rec.rate = 1;
@@ -584,8 +639,9 @@ class IntelbrasDvrCard extends HTMLElement {
       tap.className = "tap";
       const name = this._name(entityId);
       tap.setAttribute("aria-label", name);
-      // A tap opens that camera alone, with its timeline.
-      tap.addEventListener("click", () => this._show("rec", this._cameraChannel(entityId)));
+      const channel = this._cameraChannel(entityId);
+      cell.dataset.channel = channel;
+      tap.addEventListener("click", () => this._pick(this._solo === channel ? null : channel));
       const label = document.createElement("div");
       label.className = "name";
       label.textContent = name;
@@ -1145,6 +1201,7 @@ class IntelbrasDvrCard extends HTMLElement {
     const camera = rec.at == null && !rec.note && this._isToday()
       ? this._channelCamera(rec.channel) : null;
     frame.className = `player${camera ? " live" : ""}${this._all ? " cellp" : ""}`;
+    if (this._all) frame.parentNode.classList.toggle("live", !!camera);
     frame.replaceChildren();
     if (camera) {
       const badge = document.createElement("div");
@@ -1233,6 +1290,17 @@ class IntelbrasDvrCard extends HTMLElement {
       for (const channel of channels) {
         const cell = document.createElement("div");
         cell.className = "player cellp";
+        cell.dataset.channel = channel;
+        cell.tabIndex = 0;
+        cell.setAttribute("role", "button");
+        cell.setAttribute("aria-label", this._t("channel", { n: channel }));
+        const pick = () => this._pick(this._solo === channel ? null : channel);
+        cell.addEventListener("click", pick);
+        cell.addEventListener("keydown", (ev) => {
+          if (ev.key !== "Enter" && ev.key !== " ") return;
+          ev.preventDefault();
+          pick();
+        });
         grid.append(cell);
         if (channel === rec.channel) {
           frame = cell;

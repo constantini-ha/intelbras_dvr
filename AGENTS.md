@@ -112,8 +112,9 @@
   at 4x only 1.2-1.3x with the CPU at 84%, so the history grid stops at 2x (`RATES_ALL`).
   `-skip_loop_filter all` on fast sessions gained about 10%.
 - Recordings are 16:9 (1080N widened); the live substream is 3:2. The history grid uses
-  16:9 cells (`--aspect` on `.rec .grid`), the live grid 3:2; a live picture in a 16:9 cell is
-  narrowed to 82.5% so it is letterboxed, not cropped.
+  16:9 cells (`--aspect` on `.rec .grid`) and turns 3:2 while it shows live (`.grid.live`, set in
+  `_fillPlayer`); until 0.11.0 live pictures there were narrowed to 82.5% inside 16:9 cells, which
+  on a phone left bars between the columns and the names off the pictures.
 - Waiting states draw `.hint.busy`: Home Assistant's own launch logo
   (`/static/images/home-assistant-logo-loading.svg`, served by the instance, animated inside
   the SVG) and the word `loading`, nothing else; the owner found a custom ring ugly and wants
@@ -134,3 +135,15 @@
 - Simulate failures with `page.routeWebSocket('**/api/websocket')` answering `camera/webrtc/offer`
   and `camera/stream` with `success: false`, plus `page.route('**/api/hls/**')` aborted:
   `~/ha-work/tools/pw-dvr-cells.mjs <WxH> <lang> <normal|fail|slow>`.
+- From 0.11.0 a tap on a grid cell (live grid and history grid) shows that channel alone
+  (`_solo`) and enters full screen if it was not there (`_soloFull`); a second tap, the Mosaico
+  button, or leaving full screen brings the grid back. Nothing is moved in the DOM: `.grid.solo`
+  becomes one column and the other cells sit absolutely under the picked one, still playing.
+  Moving a player re-runs its `connectedCallback` and Home Assistant's players restart the stream
+  there, so any "open it bigger" must restyle, never re-parent. The picked state is the
+  `data-picked` attribute because `_fillPlayer` / `_fillOther` overwrite the cells' `className`.
+- Inside Home Assistant the card lives in shadow roots, so `document.fullscreenElement` is
+  `<home-assistant>`, never the card: ask `this.getRootNode().fullscreenElement`. Before 0.11.0
+  the full screen button never saw itself in full screen on a desktop.
+- Tap test: `~/ha-work/tools/pw-dvr-solo.mjs <WxH>` checks that the same `<video>` elements keep
+  playing and no new `camera/webrtc/offer`, `camera/stream` or `playback/start` is sent.
