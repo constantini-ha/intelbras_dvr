@@ -147,3 +147,16 @@
   the full screen button never saw itself in full screen on a desktop.
 - Tap test: `~/ha-work/tools/pw-dvr-solo.mjs <WxH>` checks that the same `<video>` elements keep
   playing and no new `camera/webrtc/offer`, `camera/stream` or `playback/start` is sent.
+- From 0.11.1 the card has one persistent grid (`_skeleton`: `ha-card > .body > .wrap > .grid`) and one
+  cell per camera (`_cells`, keyed by entity, `ch:N` for a channel without one). `_render` rebuilds only
+  the bar and the controls next to `.wrap`; the views rearrange the same cells (`_layout`: CSS `order`,
+  `hidden` for cells the view does not use, which keep playing). Mosaico, Câmera, the channel chips,
+  Gravações and loading a day all reuse the live picture: before, each switch (and each of the two
+  renders of `_loadDay`) re-parented or rebuilt it and the stream started over. `_paint` swaps what
+  covers a cell (recording, loader, hint) and drops the live picture only when the cell shows something
+  else. While today's recordings load (`rec.day` still null) `_showsLive` keeps the live picture.
+  The single camera view is the grid with one cell (`.rec.single`, `--chrome` 470/380 px).
+- Switch test: `~/ha-work/tools/pw-dvr-switch.mjs <WxH>` walks Câmera, chips, a past moment, Ao vivo,
+  full screen, Mosaico and Gravações in the dashboard card and prints the new stream asks per step.
+- Many test sessions in a row made the DVR answer 401 and the integration pause for 300 s: the
+  recordings list comes back empty meanwhile (`DVR ... 401 — pausando 300s` in the log).

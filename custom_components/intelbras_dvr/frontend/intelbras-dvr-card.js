@@ -35,6 +35,7 @@ const SPANS = [
 
 const STYLE = `
   :host { display:block }
+  [hidden] { display:none !important }
   ha-card { overflow:hidden; display:flex; flex-direction:column; container-type:inline-size }
   :host(.full) { position:fixed; inset:0; z-index:9999; width:100%; height:100%; max-width:none;
     max-height:none; margin:0; border:0; overflow:hidden; box-sizing:border-box; background:#000;
@@ -65,30 +66,31 @@ const STYLE = `
     max-width:calc(max(200px, 100vh - var(--chrome, 150px)) * var(--aspect, 1.5) * var(--ratio, 1)) }
   .cell { position:relative; background:#000; overflow:hidden; min-width:0; aspect-ratio:3/2 }
   .stream { position:relative; container-type:inline-size }
-  .cell > .stream, .player.cellp.live > .stream { position:absolute; inset:0; display:flex;
+  .cell > .stream, .player.live > .stream { position:absolute; inset:0; display:flex;
     flex-direction:column; justify-content:center }
   .stream > * { display:block; --ha-card-border-radius:0; --ha-card-border-width:0;
     --ha-card-box-shadow:none; --ha-card-background:#000 }
-  .cell .tap { position:absolute; inset:0 }
-  .cell .tap:focus-visible { outline-offset:-2px }
-  .cell .name { position:absolute; right:8px; bottom:8px; padding:2px 8px; border-radius:10px;
+  .grid > [role=button] { cursor:pointer }
+  .grid > [role=button]:focus-visible { outline:2px solid var(--primary-color); outline-offset:-2px }
+  .grid .name { position:absolute; right:8px; bottom:8px; padding:2px 8px; border-radius:10px;
     background:rgba(0,0,0,.55); color:#fff; font-size:12px; pointer-events:none }
   :host(.full) .grid, :host(:fullscreen) .grid { align-content:center }
   :host(.full) .wrap, :host(:fullscreen) .wrap { container-type:size; overflow:hidden }
   :host(.full) .grid, :host(:fullscreen) .grid { max-width:calc(100cqh * var(--aspect, 1.5) * var(--ratio, 1)) }
   .empty { padding:24px 16px; color:var(--secondary-text-color); text-align:center }
 
-  .rec { display:flex; flex-direction:column; min-height:0; flex:1;
-    background:var(--card-background-color); color:var(--primary-text-color) }
+  .body { display:flex; flex-direction:column; min-height:0; flex:1 }
+  .rec { background:var(--card-background-color); color:var(--primary-text-color) }
   /* Recordings are 16:9; the live substream is 3:2 and gets side bars here. */
   .rec .grid { --chrome:430px; --aspect:1.7778 }
+  .rec.single .grid { --chrome:470px }
   .rec .grid.live { --aspect:1.5 }
   /* Wide: the date and the transport share one row and the time sits on the timeline. */
   @container (min-width: 700px) {
     .rec { display:grid; grid-template-columns:auto minmax(0, 1fr);
       grid-template-rows:minmax(0, 1fr) auto auto auto;
       grid-template-areas:"top top" "chips chips" "line line" "nav ctl" }
-    .rec > .player, .rec > .wrap { grid-area:top; justify-self:stretch }
+    .rec > .wrap { grid-area:top; justify-self:stretch }
     .rec > .chips { grid-area:chips }
     .rec > .timeline { grid-area:line }
     .rec > .now { grid-area:line; align-self:start; justify-self:center; position:relative; z-index:1;
@@ -97,34 +99,16 @@ const STYLE = `
     .rec > .nav { grid-area:nav; padding:10px 4px 14px 12px }
     .rec > .nav .gap { flex:0 0 4px }
     .rec > .transport { grid-area:ctl }
-    .rec > .player:not(.cellp) { max-height:max(200px, calc(100vh - 380px)) }
-    .rec > .player.live > .stream { max-width:calc(max(200px, 100vh - 380px) * 1.5) }
     .rec .grid { --chrome:345px }
+    .rec.single .grid { --chrome:380px }
   }
-  .player { position:relative; background:#000; aspect-ratio:16/9; overflow:hidden;
-    max-height:max(200px, calc(100vh - 470px)) }
-  .player > .video { display:block; width:100%; height:100% }
-  .player.live { aspect-ratio:auto; max-height:none; min-height:72px }
-  .player.live > .stream { margin:0 auto; max-width:calc(max(200px, 100vh - 470px) * 1.5) }
-  .player.cellp { aspect-ratio:16/9; max-height:none; min-width:0; min-height:0 }
-  .rec .grid.live > .player.cellp, :host(.full) .grid.live > .player.cellp,
-    :host(:fullscreen) .grid.live > .player.cellp { aspect-ratio:3/2 }
-  .grid > [data-channel] { cursor:pointer }
+  .player { position:relative; background:#000; aspect-ratio:16/9; overflow:hidden; min-width:0 }
+  .player > .video { position:absolute; inset:0; display:block; width:100%; height:100% }
+  .rec .grid.live > .player { aspect-ratio:3/2 }
   /* One picture fills the grid; the others keep playing under it, so going back costs nothing. */
   .grid.solo { grid-template-columns:minmax(0, 1fr) !important; --ratio:1 !important; position:relative }
   .grid.solo > :not([data-picked]) { position:absolute; inset:0; z-index:0 }
   .grid.solo > [data-picked] { z-index:1 }
-  .player.cellp > .video { position:absolute; inset:0 }
-  .player .name { position:absolute; right:8px; bottom:8px; padding:2px 8px; border-radius:10px;
-    background:rgba(0,0,0,.55); color:#fff; font-size:12px; pointer-events:none }
-  :host(.full) .player, :host(:fullscreen) .player { flex:1; min-height:0; max-height:none;
-    aspect-ratio:auto; display:flex; align-items:center; justify-content:center }
-  :host(.full) .player.live > .stream, :host(:fullscreen) .player.live > .stream {
-    width:100%; max-width:calc((100vh - 330px) * 1.5) }
-  :host(.full) .player.cellp, :host(:fullscreen) .player.cellp { flex:none; display:block;
-    aspect-ratio:16/9 }
-  :host(.full) .player.cellp.live > .stream, :host(:fullscreen) .player.cellp.live > .stream {
-    display:flex; max-width:none }
   .hint { position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
     padding:16px; text-align:center; color:rgba(255,255,255,.78); font-size:14px }
   .player { container-type:inline-size }
@@ -140,7 +124,7 @@ const STYLE = `
   .hint.fail strong { margin-top:2px; font-weight:500; color:rgba(255,255,255,.9) }
   .hint.fail span { margin-top:-6px; font-size:12px; color:rgba(255,255,255,.6) }
   /* Room for the camera name in the corner. */
-  .cell .hint.fail, .cellp .hint.fail { padding-bottom:30px }
+  .cell .hint.fail, .player .hint.fail { padding-bottom:30px }
   @keyframes busy-in { from { opacity:0 } }
   @container (max-width: 260px) { .hint.busy img { width:44px; height:44px } .hint.busy span { display:none }
     .hint.fail { gap:6px; font-size:12px } .hint.fail span { margin-top:-4px }
@@ -235,8 +219,9 @@ class IntelbrasDvrCard extends HTMLElement {
     // The grid with its timeline open: the other channels follow the one in `_rec`.
     this._all = false;
     this._others = [];
-    this._otherLive = {};
     this._lives = new Set();
+    // One cell per camera, never moved or rebuilt: the views only rearrange them.
+    this._cells = new Map();
     // The channel shown alone over the grid, and whether that tap is what opened full screen.
     this._solo = null;
     this._soloFull = false;
@@ -389,11 +374,12 @@ class IntelbrasDvrCard extends HTMLElement {
 
   _applySolo() {
     const root = this.shadowRoot;
-    const grid = root.querySelector(".grid");
+    const grid = this._grid;
     const cells = grid ? [...grid.children] : [];
-    const solo = cells.some((cell) => Number(cell.dataset.channel) === this._solo) ? this._solo : null;
+    const picked = cells.find((cell) => !cell.hidden && Number(cell.dataset.channel) === this._solo);
+    const solo = picked ? this._solo : null;
     if (grid) grid.classList.toggle("solo", solo != null);
-    for (const cell of cells) cell.toggleAttribute("data-picked", Number(cell.dataset.channel) === solo);
+    for (const cell of cells) cell.toggleAttribute("data-picked", cell === picked);
     const mosaic = root.querySelector("button.mosaicbtn");
     const camera = root.querySelector("button.camerabtn");
     const onGrid = this._view === "live" || this._all;
@@ -412,16 +398,27 @@ class IntelbrasDvrCard extends HTMLElement {
     return button;
   }
 
-  _render() {
-    const root = this.shadowRoot;
-    root.innerHTML = "";
-    this._player = null;
-    this._parts = null;
+  _skeleton() {
+    if (this._body) return;
     const style = document.createElement("style");
     style.textContent = STYLE;
-    const card = document.createElement("ha-card");
-    root.append(style, card);
+    this._card = document.createElement("ha-card");
+    this._body = document.createElement("div");
+    this._wrap = document.createElement("div");
+    this._wrap.className = "wrap";
+    this._grid = document.createElement("div");
+    this._grid.className = "grid";
+    this._wrap.append(this._grid);
+    this._body.append(this._wrap);
+    this._card.append(this._body);
+    this.shadowRoot.replaceChildren(style, this._card);
+  }
 
+  _render() {
+    this._skeleton();
+    this._player = null;
+    this._parts = null;
+    const card = this._card;
     const bar = document.createElement("div");
     bar.className = "bar";
     const title = document.createElement("div");
@@ -442,11 +439,17 @@ class IntelbrasDvrCard extends HTMLElement {
     }
     bar.append(this._button("mdi:fullscreen", this._t("fullscreen"), () => this._toggleFull(),
       { text: false, cls: "fullbtn" }));
-    card.append(bar);
+    if (this._bar) this._bar.replaceWith(bar);
+    else card.prepend(bar);
+    this._bar = bar;
     this._syncFullButton();
 
-    if (this._view === "live") this._renderLive(card);
-    else this._renderTimeline(card);
+    const body = this._body;
+    for (const node of [...body.children]) if (node !== this._wrap) node.remove();
+    body.className = this._view === "live" ? "body" : `body rec${this._all ? "" : " single"}`;
+    this._wrap.hidden = false;
+    if (this._view === "live") this._renderLive(body);
+    else this._renderTimeline(body);
     this._applySolo();
   }
 
@@ -456,7 +459,6 @@ class IntelbrasDvrCard extends HTMLElement {
     if (view === this._view && all === this._all && !channel) return;
     this._view = view;
     this._all = all;
-    this._otherLive = {};
     // The camera view is a screen of its own: what the tap opened stays open.
     if (view === "rec" && !all) {
       this._solo = null;
@@ -470,7 +472,6 @@ class IntelbrasDvrCard extends HTMLElement {
     }
     this._stop();
     this._others = [];
-    this._recLive = null;
     clearInterval(this._tick);
     this._tick = null;
     this._render();
@@ -515,18 +516,89 @@ class IntelbrasDvrCard extends HTMLElement {
     return [...new Set(this._cameras().map((id) => this._cameraChannel(id)))];
   }
 
-  _otherHolder(entityId) {
-    const kept = this._otherLive[entityId];
-    if (kept) return kept.holder;
-    this._otherLive[entityId] = this._newLive(entityId);
-    return this._otherLive[entityId].holder;
+  _label(channel) {
+    const camera = this._channelCamera(channel);
+    return camera ? this._name(camera) : this._t("channel", { n: channel });
   }
 
-  // Kept across renders, so loading a day does not restart the live picture.
-  _liveHolder(entityId) {
-    if (this._recLive && this._recLive.entity === entityId) return this._recLive.holder;
-    this._recLive = this._newLive(entityId);
-    return this._recLive.holder;
+  _cell(entityId, channel) {
+    const key = entityId || `ch:${channel}`;
+    let cell = this._cells.get(key);
+    if (!cell) {
+      const el = document.createElement("div");
+      const badge = document.createElement("div");
+      badge.className = "badge";
+      badge.hidden = true;
+      const tag = document.createElement("div");
+      tag.className = "name";
+      el.append(badge, tag);
+      cell = { key, entity: entityId, channel, el, badge, tag, live: null, layer: [], shown: null };
+      const tap = () => {
+        if (this._view === "rec" && !this._all) return;
+        this._pick(this._solo === cell.channel ? null : cell.channel);
+      };
+      el.addEventListener("click", tap);
+      el.addEventListener("keydown", (ev) => {
+        if (ev.key !== "Enter" && ev.key !== " ") return;
+        ev.preventDefault();
+        tap();
+      });
+      this._grid.append(el);
+      this._cells.set(key, cell);
+    }
+    cell.channel = channel;
+    cell.el.dataset.channel = channel;
+    return cell;
+  }
+
+  // The cells of this view, in its order; the rest stay hidden and keep what they were playing.
+  _layout(used) {
+    const count = Math.max(1, used.length);
+    const columns = Math.max(1, Math.min(Number(this._config.columns) || 2, count));
+    this._grid.style.gridTemplateColumns = `repeat(${columns}, minmax(0, 1fr))`;
+    this._grid.style.setProperty("--ratio", columns / Math.ceil(count / columns));
+    const single = this._view === "rec" && !this._all;
+    used.forEach((cell, index) => {
+      cell.el.hidden = false;
+      cell.el.style.order = index;
+      if (single) {
+        cell.el.removeAttribute("role");
+        cell.el.removeAttribute("tabindex");
+        cell.el.removeAttribute("aria-label");
+      } else {
+        cell.el.setAttribute("role", "button");
+        cell.el.tabIndex = 0;
+        cell.el.setAttribute("aria-label", cell.tag.textContent);
+      }
+    });
+    const known = new Set([...this._cameras(), ...this._ownCameras()]);
+    for (const cell of this._cells.values()) {
+      if (used.includes(cell)) continue;
+      cell.el.hidden = true;
+      // A recording left behind has lost its session; only a live picture is worth keeping.
+      if (cell.layer.length) this._paint(cell, null);
+      if (cell.entity && known.has(cell.entity)) continue;
+      this._paint(cell, null);
+      cell.el.remove();
+      this._cells.delete(cell.key);
+    }
+  }
+
+  // Shows the camera live, reusing the picture already there, or the given nodes over nothing.
+  _paint(cell, camera, nodes = [], shown = null) {
+    if (cell.live && cell.live.entity !== camera) {
+      cell.live.holder.remove();
+      this._lives.delete(cell.live);
+      cell.live = null;
+    }
+    if (camera && !cell.live) {
+      cell.live = this._newLive(camera);
+      cell.el.prepend(cell.live.holder);
+    }
+    for (const node of cell.layer) node.remove();
+    cell.layer = nodes;
+    cell.badge.before(...nodes);
+    cell.shown = shown;
   }
 
   // A live picture covered by the loader until its first frame, and by the reason when it fails.
@@ -557,12 +629,8 @@ class IntelbrasDvrCard extends HTMLElement {
   }
 
   _checkLives() {
-    const kept = new Set([this._recLive, ...Object.values(this._otherLive)]);
     for (const live of this._lives) {
-      if (!live.holder.isConnected) {
-        if (!kept.has(live)) this._lives.delete(live);
-        continue;
-      }
+      if (!live.holder.isConnected) continue;
       const state = this._liveState(live);
       if (!state.fail) live.failedAt = 0;
       else if (!live.failedAt) live.failedAt = Date.now();
@@ -606,47 +674,26 @@ class IntelbrasDvrCard extends HTMLElement {
     if (live.veil) live.holder.append(live.veil);
   }
 
-  _grid(count) {
-    const wrap = document.createElement("div");
-    wrap.className = "wrap";
-    const grid = document.createElement("div");
-    grid.className = "grid";
-    const columns = Math.max(1, Math.min(Number(this._config.columns) || 2, count));
-    grid.style.gridTemplateColumns = `repeat(${columns}, minmax(0, 1fr))`;
-    grid.style.setProperty("--ratio", columns / Math.ceil(count / columns));
-    wrap.append(grid);
-    return grid;
-  }
-
-  _renderLive(card) {
+  _renderLive(body) {
     const cameras = this._cameras();
     this._shown = cameras.join();
+    this._grid.classList.add("live");
+    const used = cameras.map((entityId) => {
+      const cell = this._cell(entityId, this._cameraChannel(entityId));
+      cell.el.className = "cell";
+      cell.tag.textContent = this._name(entityId);
+      cell.tag.hidden = false;
+      cell.badge.hidden = true;
+      this._paint(cell, entityId);
+      return cell;
+    });
+    this._layout(used);
     if (!cameras.length) {
       const empty = document.createElement("div");
       empty.className = "empty";
       empty.textContent = this._t("no_cameras");
-      card.append(empty);
-      return;
-    }
-    const grid = this._grid(cameras.length);
-    card.append(grid.parentNode);
-
-    for (const entityId of cameras) {
-      const cell = document.createElement("div");
-      cell.className = "cell";
-      const stream = this._newLive(entityId).holder;
-      const tap = document.createElement("button");
-      tap.className = "tap";
-      const name = this._name(entityId);
-      tap.setAttribute("aria-label", name);
-      const channel = this._cameraChannel(entityId);
-      cell.dataset.channel = channel;
-      tap.addEventListener("click", () => this._pick(this._solo === channel ? null : channel));
-      const label = document.createElement("div");
-      label.className = "name";
-      label.textContent = name;
-      cell.append(stream, tap, label);
-      grid.append(cell);
+      this._wrap.hidden = true;
+      body.append(empty);
     }
   }
 
@@ -670,6 +717,12 @@ class IntelbrasDvrCard extends HTMLElement {
 
   _isToday() {
     return !!this._rec.day && this._rec.day === this._rec.today;
+  }
+
+  // Today's live picture stays while today's recordings load, so switching views keeps it playing.
+  _showsLive() {
+    const rec = this._rec;
+    return rec.at == null && !rec.note && (this._isToday() || (rec.day == null && !rec.error));
   }
 
   _fetchRanges(channel = this._rec.channel) {
@@ -815,7 +868,6 @@ class IntelbrasDvrCard extends HTMLElement {
       }
     }
     this._stop();
-    this._recLive = null;
     Object.assign(rec, { at, cursor: at, speed: rec.rate });
     this._fillPlayer();
     this._follow();
@@ -942,24 +994,24 @@ class IntelbrasDvrCard extends HTMLElement {
 
   _fillOther(other) {
     const rec = this._rec;
-    const frame = other.frame;
-    const camera = rec.at == null && !rec.note && this._isToday()
-      ? this._channelCamera(other.channel) : null;
+    const cell = other.cell;
+    const camera = this._showsLive() ? this._channelCamera(other.channel) : null;
     const waiting = !other.note && (other.at != null || rec.at != null || (!rec.note && !rec.error &&
       rec.ranges === null));
     const hint = other.note || (other.at != null || rec.at != null
       ? this._t("starting")
       : rec.note || rec.error || (rec.ranges === null ? this._t("loading") : ""));
     const shown = camera ? `live|${camera}` : other.url ? `video|${other.url}` : `hint|${hint}`;
-    if (other.shown === shown && frame.childElementCount) return;
-    other.shown = shown;
-    if (!camera) delete this._otherLive[this._channelCamera(other.channel)];
+    if (cell.shown === shown) return;
     other.player = null;
-    frame.className = camera ? "player cellp live" : "player cellp";
-    frame.replaceChildren();
+    cell.el.className = camera ? "player live" : "player";
+    cell.badge.hidden = true;
+    const nodes = [];
     if (camera) {
-      frame.append(this._otherHolder(camera));
-    } else if (other.url) {
+      this._paint(cell, camera, nodes, shown);
+      return;
+    }
+    if (other.url) {
       const apple = (navigator.vendor || "").startsWith("Apple") &&
         document.createElement("video").canPlayType("application/vnd.apple.mpegurl");
       const own = !apple && customElements.get("ha-hls-player");
@@ -981,17 +1033,16 @@ class IntelbrasDvrCard extends HTMLElement {
         player.src = other.url;
       }
       other.player = player;
-      frame.append(player);
-      this._veil(frame, player);
+      nodes.push(player, this._veil(player));
     } else if (waiting) {
-      frame.append(this._busy());
+      nodes.push(this._busy());
     } else {
       const text = document.createElement("div");
       text.className = "hint";
       text.textContent = hint;
-      frame.append(text);
+      nodes.push(text);
     }
-    frame.append(this._nameTag(other.channel));
+    this._paint(cell, camera, nodes, shown);
   }
 
   // Home Assistant's own launch logo, served by the instance itself.
@@ -1027,9 +1078,8 @@ class IntelbrasDvrCard extends HTMLElement {
   }
 
   // The loader stays over a new player until its first picture.
-  _veil(frame, player) {
+  _veil(player) {
     const busy = this._busy();
-    frame.append(busy);
     const done = () => busy.remove();
     const hook = () => {
       const video = this._video(player);
@@ -1040,14 +1090,7 @@ class IntelbrasDvrCard extends HTMLElement {
       return true;
     };
     if (!hook()) Promise.resolve(player.updateComplete).then(() => hook() || setTimeout(hook, 300));
-  }
-
-  _nameTag(channel) {
-    const tag = document.createElement("div");
-    tag.className = "name";
-    const camera = this._channelCamera(channel);
-    tag.textContent = camera ? this._name(camera) : this._t("channel", { n: channel });
-    return tag;
+    return busy;
   }
 
   _isLive() {
@@ -1196,21 +1239,17 @@ class IntelbrasDvrCard extends HTMLElement {
     const parts = this._parts;
     if (!parts) return;
     const rec = this._rec;
-    const frame = parts.frame;
+    const cell = parts.cell;
     this._player = null;
-    const camera = rec.at == null && !rec.note && this._isToday()
-      ? this._channelCamera(rec.channel) : null;
-    frame.className = `player${camera ? " live" : ""}${this._all ? " cellp" : ""}`;
-    if (this._all) frame.parentNode.classList.toggle("live", !!camera);
-    frame.replaceChildren();
+    const camera = this._showsLive() ? this._channelCamera(rec.channel) : null;
+    cell.el.className = camera ? "player live" : "player";
+    this._grid.classList.toggle("live", !!camera);
+    cell.badge.hidden = !camera || this._all;
+    cell.badge.textContent = this._t("live");
+    const nodes = [];
     if (camera) {
-      const badge = document.createElement("div");
-      badge.className = "badge";
-      badge.textContent = this._t("live");
-      frame.append(this._liveHolder(camera));
-      if (!this._all) frame.append(badge);
+      this._paint(cell, camera);
     } else if (rec.url) {
-      this._recLive = null;
       // Safari plays HLS by itself; elsewhere Home Assistant's player is the steady one.
       const apple = (navigator.vendor || "").startsWith("Apple") &&
         document.createElement("video").canPlayType("application/vnd.apple.mpegurl");
@@ -1247,71 +1286,46 @@ class IntelbrasDvrCard extends HTMLElement {
         player.src = rec.url;
       }
       this._player = player;
-      frame.append(player);
-      this._veil(frame, player);
+      nodes.push(player, this._veil(player));
     } else {
-      this._recLive = null;
       const text = rec.note || rec.error || (rec.at != null
         ? this._t("starting")
         : rec.ranges === null
           ? this._t("loading")
           : rec.ranges.length ? this._t("pick_time") : this._t("no_recordings_day"));
       if (!rec.note && !rec.error && (rec.at != null || rec.ranges === null)) {
-        frame.append(this._busy());
+        nodes.push(this._busy());
       } else {
         const hint = document.createElement("div");
         hint.className = "hint";
         hint.textContent = text;
-        frame.append(hint);
+        nodes.push(hint);
       }
     }
-    if (this._all) {
-      frame.append(this._nameTag(rec.channel));
-      for (const other of this._others) this._fillOther(other);
-    }
+    if (!camera) this._paint(cell, null, nodes);
+    if (this._all) for (const other of this._others) this._fillOther(other);
     this._syncControls();
   }
 
-  _renderTimeline(card) {
+  _renderTimeline(box) {
     const rec = this._rec;
-    const box = document.createElement("div");
-    box.className = "rec";
-    card.append(box);
-
-    let frame = document.createElement("div");
-    frame.className = "player";
-    let top = frame;
     const kept = this._others;
     this._others = [];
-    if (this._all) {
-      const channels = this._allChannels();
-      const grid = this._grid(channels.length);
-      top = grid.parentNode;
-      for (const channel of channels) {
-        const cell = document.createElement("div");
-        cell.className = "player cellp";
-        cell.dataset.channel = channel;
-        cell.tabIndex = 0;
-        cell.setAttribute("role", "button");
-        cell.setAttribute("aria-label", this._t("channel", { n: channel }));
-        const pick = () => this._pick(this._solo === channel ? null : channel);
-        cell.addEventListener("click", pick);
-        cell.addEventListener("keydown", (ev) => {
-          if (ev.key !== "Enter" && ev.key !== " ") return;
-          ev.preventDefault();
-          pick();
-        });
-        grid.append(cell);
-        if (channel === rec.channel) {
-          frame = cell;
-          continue;
-        }
-        // A video already playing moves to the new cell with its state.
+    const channels = this._all ? this._allChannels() : [];
+    if (!channels.includes(rec.channel)) channels.unshift(rec.channel);
+    const used = channels.map((channel) => {
+      const cell = this._cell(this._channelCamera(channel), channel);
+      cell.tag.textContent = this._label(channel);
+      cell.tag.hidden = !this._all;
+      if (channel !== rec.channel) {
         const before = kept.find((other) => other.channel === channel) || {};
         this._others.push({ at: null, url: null, token: null, note: null, player: null,
-          ...before, channel, frame: cell, shown: null });
+          ...before, channel, cell });
       }
-    }
+      return cell;
+    });
+    this._layout(used);
+    const cell = used[channels.indexOf(rec.channel)];
 
     const chips = document.createElement("div");
     chips.className = "chips";
@@ -1387,8 +1401,8 @@ class IntelbrasDvrCard extends HTMLElement {
       this._button("mdi:fast-forward-60", this._t("fwd_1m"), () => jump(60), { text: false, cls: "round" }),
       right);
 
-    box.append(top, ...(this._all ? [] : [chips]), nav, now, timeline, transport);
-    this._parts = { frame, now, scroll, track, span, pause, live, rate };
+    box.append(...(this._all ? [] : [chips]), nav, now, timeline, transport);
+    this._parts = { cell, now, scroll, track, span, pause, live, rate };
     this._ticksKey = null;
     this._seeking = false;
     this._wireScroll(scroll);
